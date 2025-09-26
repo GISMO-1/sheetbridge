@@ -9,7 +9,7 @@ from typing import Callable
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.responses import PlainTextResponse, Response
 
 SENSITIVE_HEADERS = {"authorization"}
 
@@ -42,9 +42,11 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
             status = response.status_code
             return response
-        except Exception as exc:  # pragma: no cover - pass through after logging
+        except Exception as exc:  # pragma: no cover - handled after logging
             error = repr(exc)
-            raise
+            response = PlainTextResponse("Internal Server Error", status_code=500)
+            status = response.status_code
+            return response
         finally:
             duration_ms = int((time.time() - start) * 1000)
             record = {
