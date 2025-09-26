@@ -1,11 +1,15 @@
-from sqlmodel import SQLModel, Field, create_engine, Session, select
 from typing import Any
 
-engine = create_engine("sqlite:///sheetbridge.db", echo=False)
+from sqlalchemy import Column, JSON
+from sqlmodel import SQLModel, Field, create_engine, Session, select
+
+from .config import settings
+
+engine = create_engine(f"sqlite:///{settings.CACHE_DB_PATH}", echo=False)
 
 class Row(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    data: dict[str, Any] = Field(sa_column_kwargs={"type_": "JSON"})
+    data: dict[str, Any] = Field(sa_column=Column(JSON))
 
 def init_db():
     SQLModel.metadata.create_all(engine)
