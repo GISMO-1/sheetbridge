@@ -29,7 +29,7 @@ Implementation notes:
 - Prometheus metrics include `sb_requests_total{method,path,status}`, `sb_request_latency_seconds{method,path}`, and `sb_errors_total{path}`. `/metrics` returns the standard text exposition format.
 - Token bucket rate limiting is disabled by default; enable by toggling `RATE_LIMIT_ENABLED` and tuning `RATE_LIMIT_RPS` + `RATE_LIMIT_BURST`. Buckets are keyed by client IP.
 - Future enhancement: persist upstream Sheet update timestamps or per-row hashes to make `since` filtering reflect actual Sheet edits rather than cache time.
-- `require_auth` now guards `/admin/*`, allowing the legacy bearer token (`Authorization: Bearer dev_token` unless `API_TOKEN` is overridden) or any key from the comma-separated `API_KEYS` list via the `X-API-Key` header.
+- `require_auth` now guards `/admin/*`, allowing the legacy bearer token (`Authorization: Bearer <API_TOKEN>`; defaults to `dev_token` unless you override the value) or any key from the comma-separated `API_KEYS` list via the `X-API-Key` header.
 
 Env:
 - Python 3.11 virtualenv (`python -m venv .venv && source .venv/bin/activate`)

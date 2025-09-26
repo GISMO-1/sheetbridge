@@ -58,7 +58,7 @@ Open http://127.0.0.1:8000/docs
 - Run the authenticated `POST /admin/idempotency/purge` maintenance endpoint to delete expired entries immediately. The endpoint responds with `{"purged": <count>}` indicating how many records were removed. All `/admin/*` routes require either a legacy bearer token or a configured API key.
 
 ### Authentication
-- Bearer tokens (legacy, `Authorization: Bearer dev_token`)
+- Bearer tokens (legacy, `Authorization: Bearer <API_TOKEN>`). The default token is `dev_token`; overriding `API_TOKEN` disables the dev token fallback unless you explicitly list `dev_token` in `API_KEYS`.
 - API keys: set `API_KEYS` env var (comma-separated). Use header `X-API-Key: <key>`.
 
 ### CORS
