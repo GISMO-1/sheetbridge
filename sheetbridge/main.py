@@ -17,10 +17,10 @@ from .sheets import fetch_sheet
 from .store import (
     get_idempotency,
     init_db,
-    list_rows,
+    insert_rows,
     purge_idempotency_older_than,
+    query_rows,
     save_idempotency,
-    upsert_rows,
 )
 
 
@@ -40,7 +40,7 @@ def _sync_once_sync() -> int:
     if not creds:
         raise RuntimeError("Google credentials not configured")
     rows = fetch_sheet(creds)
-    upsert_rows(rows)
+    insert_rows(rows)
     return len(rows)
 
 
@@ -81,14 +81,43 @@ def health():
 
 
 @app.get("/rows")
-def get_rows(limit: int = Query(100, ge=1, le=1000), offset: int = Query(0, ge=0)):
-    return {"rows": list_rows(limit=limit, offset=offset)}
+def get_rows(
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    q: Optional[str] = Query(None, description="substring filter"),
+    columns: Optional[str] = Query(None, description="comma-separated projection"),
+    since: Optional[str] = Query(None, description="ISO-8601 or unix seconds"),
+):
+    cols_list = [c.strip() for c in columns.split(",") if c.strip()] if columns else None
+    since_unix: Optional[int] = None
+    if since:
+        try:
+            if since.isdigit():
+                since_unix = int(since)
+            else:
+                from datetime import datetime, timezone
+
+                parsed = datetime.fromisoformat(since)
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                since_unix = int(parsed.timestamp())
+        except Exception as exc:  # pragma: no cover - defensive
+            raise HTTPException(status_code=400, detail="invalid 'since' value") from exc
+
+    rows, total = query_rows(
+        q=q,
+        columns=cols_list,
+        since_unix=since_unix,
+        limit=limit,
+        offset=offset,
+    )
+    return {"rows": rows, "total": total, "limit": limit, "offset": offset}
 
 
 @app.post("/rows")
 def add_row(row: dict = Body(...), _=Depends(require_write_token)):
     # For MVP we only cache; write-back to Sheet can be wired after OAuth is set up
-    upsert_rows([row])
+    insert_rows([row])
     return {"inserted": 1}
 
 
@@ -118,7 +147,7 @@ def append(
             save_idempotency(idem_key, out)
         response.status_code = 403
         return out
-    upsert_rows([row])
+    insert_rows([row])
     creds = resolve_credentials(
         settings.GOOGLE_OAUTH_CLIENT_SECRETS,
         settings.GOOGLE_SERVICE_ACCOUNT_JSON,
