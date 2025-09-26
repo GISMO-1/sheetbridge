@@ -20,3 +20,9 @@ Open http://127.0.0.1:8000/docs
 - Environment variables can be loaded from `.env`.
 - To install dev tooling without editable mode: `pip install -e ".[dev]"` after activating a Python 3.11 virtualenv.
 - Linting is configured with Ruff (see `pyproject.toml`).
+
+## Google Auth
+- Service account: set `GOOGLE_SERVICE_ACCOUNT_JSON` to the JSON string. Optionally set `DELEGATED_SUBJECT` for domain-wide delegation.
+- User OAuth: store the client secrets file on disk and set `GOOGLE_OAUTH_CLIENT_SECRETS=/workspace/client_secrets.json`. The first `GET /sync` run will walk through the console/device flow.
+- Tokens persist at `TOKEN_STORE` (defaults to `.tokens/sheets.json`).
+- Call `GET /sync` (or set `SYNC_ON_START=1`) to ingest rows from the Sheet into SQLite.

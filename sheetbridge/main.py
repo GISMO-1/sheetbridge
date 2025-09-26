@@ -1,9 +1,11 @@
-from fastapi import FastAPI, Depends, Body, Query
+from fastapi import Body, Depends, FastAPI, HTTPException, Query
 from pydantic import BaseModel
 from pathlib import Path
 from datetime import datetime
 from .config import settings
-from .store import init_db, upsert_rows, list_rows
+from .oauth import resolve_credentials
+from .sheets import fetch_sheet
+from .store import init_db, list_rows, upsert_rows
 from .auth import require_write_token
 
 app = FastAPI(title="SheetBridge", version="0.1.0")
@@ -16,6 +18,11 @@ class Health(BaseModel):
 def boot():
     Path(settings.CACHE_DB_PATH).touch(exist_ok=True)
     init_db()
+    if str(getattr(settings, "SYNC_ON_START", 0)) in {"1", "true", "True"}:
+        try:
+            sync()
+        except Exception:
+            pass
 
 @app.get("/health", response_model=Health)
 def health():
@@ -30,3 +37,18 @@ def add_row(row: dict = Body(...), _=Depends(require_write_token)):
     # For MVP we only cache; write-back to Sheet can be wired after OAuth is set up
     upsert_rows([row])
     return {"inserted": 1}
+
+
+@app.get("/sync")
+def sync():
+    creds = resolve_credentials(
+        settings.GOOGLE_OAUTH_CLIENT_SECRETS,
+        settings.GOOGLE_SERVICE_ACCOUNT_JSON,
+        settings.DELEGATED_SUBJECT,
+        settings.TOKEN_STORE,
+    )
+    if not creds:
+        raise HTTPException(status_code=503, detail="Google credentials not configured")
+    rows = fetch_sheet(creds)
+    upsert_rows(rows)
+    return {"synced": len(rows)}
