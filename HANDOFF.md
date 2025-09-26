@@ -1,10 +1,10 @@
 # HANDOFF
-Status: Google credential plumbing landed. Config now supports service accounts or OAuth device flow, `/sync` endpoint ingests rows into SQLite, and optional startup sync is available but disabled by default.
+Status: Read sync works and write-back append endpoint now caches rows locally and conditionally writes to Google Sheets when write credentials resolve. Config exposes ALLOW_WRITE_BACK to gate the new behavior.
 
 Next:
-1. Enable write scope + append integration for Task 3.
-2. Consider background scheduler once Task 3 confirms manual sync behavior.
-3. Harden error handling/logging around credential refresh.
+1. Wire a scheduler or background job for periodic sync/flush once append behavior is validated.
+2. Harden error handling/logging around credential refresh and append failures.
+3. Explore retry/backoff strategies for write-back when Sheets APIs fail.
 
 Paths:
 - Application package: `sheetbridge/`
@@ -16,7 +16,7 @@ Env:
 - Python 3.11 virtualenv (`python -m venv .venv && source .venv/bin/activate`)
 - Install dependencies with `pip install -e ".[dev]"`
 - Configure settings via environment variables or `.env`
-- New config knobs: `GOOGLE_OAUTH_CLIENT_SECRETS`, `GOOGLE_SERVICE_ACCOUNT_JSON`, `DELEGATED_SUBJECT`, `TOKEN_STORE` (defaults to `.tokens/sheets.json`), `SYNC_ON_START` (defaults to `0`).
+- New config knobs: `GOOGLE_OAUTH_CLIENT_SECRETS`, `GOOGLE_SERVICE_ACCOUNT_JSON`, `DELEGATED_SUBJECT`, `TOKEN_STORE` (defaults to `.tokens/sheets.json`), `SYNC_ON_START` (defaults to `0`), `ALLOW_WRITE_BACK` (defaults to `0`).
 
 Tests:
 - `pytest -q`
@@ -25,4 +25,4 @@ Google Auth handoff:
 - Method configured: not configured (no credentials committed).
 - Secrets paths: expected client secrets path via `GOOGLE_OAUTH_CLIENT_SECRETS`; service account via `GOOGLE_SERVICE_ACCOUNT_JSON` (string env). Token store defaults to `.tokens/sheets.json`.
 - Last `/sync`: not run (no creds); endpoint returns 503 until configured.
-- Next auth step: expand scopes to allow append/write in Task 3.
+- Next auth step: schedule background sync/append flush once write credentials are configured.
