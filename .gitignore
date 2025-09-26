@@ -137,7 +137,8 @@ celerybeat.pid
 # Environments
 .env
 .envrc
-.venv
+.venv/
+sheetbridge.db
 env/
 venv/
 ENV/
