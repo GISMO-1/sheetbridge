@@ -6,12 +6,25 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Body, Depends, FastAPI, HTTPException, Query, Header, Response
+from fastapi import (
+    Body,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Query,
+    Header,
+    Response,
+    Request,
+)
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from .auth import require_write_token
 from .config import settings
+from .logging import AccessLogMiddleware
+from .metrics import MetricsHook, metrics_response
 from .oauth import resolve_credentials
+from .ratelimit import allow
 from .scheduler import run_periodic, state as sync_state
 from .sheets import fetch_sheet
 from .store import (
@@ -72,7 +85,35 @@ async def lifespan(app: FastAPI):
                 await task
 
 
-app = FastAPI(title="SheetBridge", version="0.2.0", lifespan=lifespan)
+metrics = MetricsHook()
+
+app = FastAPI(title="SheetBridge", version="0.3.0", lifespan=lifespan)
+app.add_middleware(AccessLogMiddleware)
+
+
+@app.middleware("http")
+async def _metrics_and_rate(request: Request, call_next):
+    method = request.method
+    path = request.url.path
+    start = await metrics.before(method, path)
+    if getattr(settings, "RATE_LIMIT_ENABLED", False):
+        client_host = request.client.host if request.client else "unknown"
+        allowed = allow(
+            client_host,
+            float(getattr(settings, "RATE_LIMIT_RPS", 5.0)),
+            int(getattr(settings, "RATE_LIMIT_BURST", 20)),
+        )
+        if not allowed:
+            response = JSONResponse({"detail": "rate limit"}, status_code=429)
+            await metrics.after(method, path, response.status_code, start)
+            return response
+    try:
+        response = await call_next(request)
+    except Exception:
+        await metrics.after(method, path, 500, start)
+        raise
+    await metrics.after(method, path, response.status_code, start)
+    return response
 
 
 @app.get("/health", response_model=Health)
@@ -198,3 +239,8 @@ def sync_status():
         "jitter": settings.SYNC_JITTER_SECONDS,
         "backoff_max": settings.SYNC_BACKOFF_MAX_SECONDS,
     }
+
+
+@app.get("/metrics", include_in_schema=False)
+def metrics_endpoint():
+    return metrics_response()

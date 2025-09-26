@@ -26,6 +26,10 @@ class Settings(BaseModel):
     SYNC_JITTER_SECONDS: int = Field(default=15)
     SYNC_BACKOFF_MAX_SECONDS: int = Field(default=600)
     IDEMPOTENCY_TTL_SECONDS: int = Field(default=86400)
+    LOG_LEVEL: str = Field(default="INFO")
+    RATE_LIMIT_ENABLED: bool = Field(default=False)
+    RATE_LIMIT_RPS: float = Field(default=5.0)
+    RATE_LIMIT_BURST: int = Field(default=20)
 
 
 def _load_settings() -> Settings:

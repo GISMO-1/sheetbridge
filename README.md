@@ -22,6 +22,11 @@ Open http://127.0.0.1:8000/docs
 - Linting is configured with Ruff (see `pyproject.toml`).
 - `init_db()` automatically backfills the cached rows table with a `created_at` column if a legacy database is missing it, so `/rows?since=` continues working after upgrades without manual intervention.
 
+## Logging, request IDs, metrics, and rate limit
+- Structured JSON logs now stream to stdout for every request via `AccessLogMiddleware`. Each entry includes latency, status, method, path, a redacted subset of headers, and a `request_id` field that echoes/sets the `X-Request-ID` header on responses.
+- A Prometheus endpoint lives at `GET /metrics` and exports `sb_requests_total`, `sb_request_latency_seconds`, and `sb_errors_total` sourced from in-process counters and histograms.
+- Enable per-IP throttling by setting `RATE_LIMIT_ENABLED=1`. Tune the token bucket with `RATE_LIMIT_RPS` (refill rate) and `RATE_LIMIT_BURST` (bucket capacity). Defaults keep the limiter disabled.
+
 ### Filtering and projection
 - `GET /rows?q=alice` → case-insensitive search across the JSON payload of each cached row.
 - `GET /rows?columns=id,name` → return only those keys per row (projection happens after filtering and pagination).
