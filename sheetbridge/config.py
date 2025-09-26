@@ -20,6 +20,7 @@ class Settings(BaseModel):
     DELEGATED_SUBJECT: Optional[str] = Field(default=None)
     TOKEN_STORE: str = Field(default=".tokens/sheets.json")
     SYNC_ON_START: bool = Field(default=False)
+    ALLOW_WRITE_BACK: bool = Field(default=False)
 
 
 def _load_settings() -> Settings:

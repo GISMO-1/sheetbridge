@@ -26,3 +26,8 @@ Open http://127.0.0.1:8000/docs
 - User OAuth: store the client secrets file on disk and set `GOOGLE_OAUTH_CLIENT_SECRETS=/workspace/client_secrets.json`. The first `GET /sync` run will walk through the console/device flow.
 - Tokens persist at `TOKEN_STORE` (defaults to `.tokens/sheets.json`).
 - Call `GET /sync` (or set `SYNC_ON_START=1`) to ingest rows from the Sheet into SQLite.
+
+## Write-back
+- Enable write-back by setting `ALLOW_WRITE_BACK=1` (or `true`) and calling the authenticated `POST /append` endpoint with the bearer token defined by `API_TOKEN`.
+- Requests are cached immediately via SQLite; if Google credentials with write scope are unavailable the API responds with `{"inserted": 1, "wrote": False}` and will not attempt the remote append.
+- Provide write credentials via either a service account (`GOOGLE_SERVICE_ACCOUNT_JSON` + optional `DELEGATED_SUBJECT`) or user OAuth (`GOOGLE_OAUTH_CLIENT_SECRETS` + token flow). When credentials resolve successfully, `/append` issues a Sheets `values.append` call ordered by the header row and responds with `{"inserted": 1, "wrote": True}`.

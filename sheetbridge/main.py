@@ -39,6 +39,32 @@ def add_row(row: dict = Body(...), _=Depends(require_write_token)):
     return {"inserted": 1}
 
 
+@app.post("/append")
+def append(row: dict = Body(...), _=Depends(require_write_token)):
+    allow_write = str(getattr(settings, "ALLOW_WRITE_BACK", 0)).lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if not allow_write:
+        raise HTTPException(status_code=403, detail="write-back disabled")
+    upsert_rows([row])
+    creds = resolve_credentials(
+        settings.GOOGLE_OAUTH_CLIENT_SECRETS,
+        settings.GOOGLE_SERVICE_ACCOUNT_JSON,
+        settings.DELEGATED_SUBJECT,
+        settings.TOKEN_STORE,
+        scope="write",
+    )
+    if not creds:
+        return {"inserted": 1, "wrote": False}
+    from .sheets import append_row
+
+    append_row(creds, row)
+    return {"inserted": 1, "wrote": True}
+
+
 @app.get("/sync")
 def sync():
     creds = resolve_credentials(

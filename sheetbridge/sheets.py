@@ -8,10 +8,27 @@ from .config import settings
 def _service(creds: Credentials):
     return build("sheets", "v4", credentials=creds, cache_discovery=False)
 
+def get_header(creds: Credentials) -> List[str]:
+    svc = _service(creds)
+    rng = f"{settings.GOOGLE_WORKSHEET}!1:1"
+    res = (
+        svc.spreadsheets()
+        .values()
+        .get(spreadsheetId=settings.GOOGLE_SHEET_ID, range=rng)
+        .execute()
+    )
+    return [h.strip() for h in res.get("values", [[]])[0]]
+
+
 def fetch_sheet(creds: Credentials) -> List[Dict]:
     svc = _service(creds)
     rng = f"{settings.GOOGLE_WORKSHEET}!A:Z"
-    res = svc.spreadsheets().values().get(spreadsheetId=settings.GOOGLE_SHEET_ID, range=rng).execute()
+    res = (
+        svc.spreadsheets()
+        .values()
+        .get(spreadsheetId=settings.GOOGLE_SHEET_ID, range=rng)
+        .execute()
+    )
     values = res.get("values", [])
     if not values:
         return []
@@ -23,9 +40,11 @@ def fetch_sheet(creds: Credentials) -> List[Dict]:
     return rows
 
 def append_row(creds: Credentials, row: Dict):
+    header = get_header(creds)
+    values = [row.get(column, None) for column in header]
     svc = _service(creds)
     rng = f"{settings.GOOGLE_WORKSHEET}!A:Z"
-    body = {"values": [list(row.values())]}
+    body = {"values": [values]}
     svc.spreadsheets().values().append(
         spreadsheetId=settings.GOOGLE_SHEET_ID,
         range=rng,
