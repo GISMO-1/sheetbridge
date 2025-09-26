@@ -7,9 +7,11 @@ import time
 import uuid
 from typing import Callable
 
+from starlette.datastructures import MutableHeaders
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.errors import ServerErrorMiddleware
 from starlette.requests import Request
-from starlette.responses import PlainTextResponse, Response
+from starlette.responses import Response
 
 SENSITIVE_HEADERS = {"authorization"}
 
@@ -29,6 +31,45 @@ def _redact_headers(headers: dict[str, str]) -> dict[str, str]:
     }
 
 
+_REQUEST_ID_SCOPE_KEY = "sheetbridge.request_id"
+
+
+_SERVER_ERROR_PATCHED = False
+
+
+def _patch_server_error_middleware() -> None:
+    """Ensure Starlette's server error middleware propagates request IDs."""
+
+    original_call = ServerErrorMiddleware.__call__
+
+    async def _patched_call(self, scope, receive, send):  # type: ignore[override]
+        if scope.get("type") != "http":
+            await original_call(self, scope, receive, send)
+            return
+
+        async def _send(message):
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(raw=message["headers"])
+                request_id = scope.get(_REQUEST_ID_SCOPE_KEY)
+                if request_id and "x-request-id" not in headers:
+                    headers["X-Request-ID"] = request_id
+                message = dict(message)
+                message["headers"] = headers.raw
+            await send(message)
+
+        await original_call(self, scope, receive, _send)
+
+    global _SERVER_ERROR_PATCHED
+    if _SERVER_ERROR_PATCHED:
+        return
+
+    ServerErrorMiddleware.__call__ = _patched_call  # type: ignore[assignment]
+    _SERVER_ERROR_PATCHED = True
+
+
+_patch_server_error_middleware()
+
+
 class AccessLogMiddleware(BaseHTTPMiddleware):
     """Emit a JSON access log per request and ensure `X-Request-ID` headers."""
 
@@ -38,15 +79,14 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
         status = 500
         error: str | None = None
         response: Response | None = None
+        request.scope[_REQUEST_ID_SCOPE_KEY] = request_id
         try:
             response = await call_next(request)
             status = response.status_code
             return response
         except Exception as exc:  # pragma: no cover - handled after logging
             error = repr(exc)
-            response = PlainTextResponse("Internal Server Error", status_code=500)
-            status = response.status_code
-            return response
+            raise
         finally:
             duration_ms = int((time.time() - start) * 1000)
             record = {

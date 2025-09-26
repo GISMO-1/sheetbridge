@@ -24,6 +24,7 @@ Open http://127.0.0.1:8000/docs
 
 ## Logging, request IDs, metrics, and rate limit
 - Structured JSON logs now stream to stdout for every request via `AccessLogMiddleware`. Each entry includes latency, status, method, path, a redacted subset of headers, and a `request_id` field that echoes/sets the `X-Request-ID` header on responses, including `500` errors raised by routes.
+- The middleware now lets exceptions bubble to Starlette's built-in handlers (so debug stack traces, custom `exception_handler(Exception)`, and `TestClient(raise_server_exceptions=True)` work again) while still stamping the fallback 500 produced by `ServerErrorMiddleware` with the originating request ID.
 - A Prometheus endpoint lives at `GET /metrics` and exports `sb_requests_total`, `sb_request_latency_seconds`, and `sb_errors_total` sourced from in-process counters and histograms.
 - Enable per-IP throttling by setting `RATE_LIMIT_ENABLED=1`. Tune the token bucket with `RATE_LIMIT_RPS` (refill rate) and `RATE_LIMIT_BURST` (bucket capacity). Defaults keep the limiter disabled.
 
