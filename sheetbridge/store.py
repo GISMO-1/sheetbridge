@@ -1,8 +1,8 @@
 from time import time
 from typing import Any, Optional
 
-from sqlalchemy import Column, JSON, Integer
-from sqlmodel import SQLModel, Field, Session, create_engine, delete, select
+from sqlalchemy import Column, Integer, JSON, Text, cast, func
+from sqlmodel import Field, Session, SQLModel, create_engine, delete, select
 
 from .config import settings
 
@@ -11,6 +11,9 @@ engine = create_engine(f"sqlite:///{settings.CACHE_DB_PATH}", echo=False)
 class Row(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     data: dict[str, Any] = Field(sa_column=Column(JSON))
+    created_at: int = Field(
+        sa_column=Column(Integer, nullable=False, default=int(time()))
+    )
 
 
 class Idempotency(SQLModel, table=True):
@@ -21,17 +24,61 @@ class Idempotency(SQLModel, table=True):
 def init_db():
     SQLModel.metadata.create_all(engine)
 
+def insert_rows(rows: list[dict]):
+    now = int(time())
+    with Session(engine) as session:
+        for row in rows:
+            session.add(Row(data=row, created_at=now))
+        session.commit()
+
+
 def upsert_rows(rows: list[dict]):
-    with Session(engine) as s:
-        for r in rows:
-            obj = Row(data=r)
-            s.add(obj)
-        s.commit()
+    insert_rows(rows)
+
 
 def list_rows(limit: int = 100, offset: int = 0):
-    with Session(engine) as s:
-        stmt = select(Row).offset(offset).limit(limit)
-        return [r.data for r in s.exec(stmt)]
+    rows, _ = query_rows(
+        q=None,
+        columns=None,
+        since_unix=None,
+        limit=limit,
+        offset=offset,
+    )
+    return rows
+
+
+def query_rows(
+    q: Optional[str],
+    columns: Optional[list[str]],
+    since_unix: Optional[int],
+    limit: int,
+    offset: int,
+) -> tuple[list[dict], int]:
+    with Session(engine) as session:
+        stmt = select(Row)
+        if since_unix is not None:
+            stmt = stmt.where(Row.created_at >= since_unix)
+        if q:
+            lowered = q.lower()
+            stmt = stmt.where(
+                func.lower(cast(Row.data, Text)).like(f"%{lowered}%")
+            )
+
+        total_stmt = select(func.count()).select_from(stmt.subquery())
+        total_result = session.exec(total_stmt).one()
+        total = total_result[0] if isinstance(total_result, tuple) else total_result
+
+        paged_stmt = stmt.offset(offset).limit(limit)
+        result_rows = [row.data for row in session.exec(paged_stmt)]
+
+        if columns:
+            allowed = set(columns)
+            result_rows = [
+                {key: value for key, value in row.items() if key in allowed}
+                for row in result_rows
+            ]
+
+        return result_rows, int(total)
 
 
 def save_idempotency(key: str, response: dict[str, Any]) -> None:

@@ -1,18 +1,24 @@
 # HANDOFF
-Status: Background sync scheduler remains available and disabled by default until credentials arrive. `/append` now supports idempotent writes backed by SQLite with a configurable TTL, cached responses, replay signalling, and an authenticated purge endpoint.
+Status: Background sync scheduler remains available and disabled by default until credentials arrive. `/append` retains idempotent writes backed by SQLite with configurable TTL + purge endpoint. `/rows` now supports substring filtering, column projection, a `since` cursor based on cache insertion time, and reports `total/limit/offset` for pagination.
 
 Next:
 1. Supply Google read credentials and flip `SYNC_ENABLED=1` when ready to let the scheduler hydrate the cache automatically.
-2. Decide on an appropriate `IDEMPOTENCY_TTL_SECONDS` for production retry behaviour and configure purge cadence (either via `/admin/idempotency/purge` or a scheduled job).
-3. Monitor `/sync/status` after enabling to confirm runs, and keep an eye on the idempotency table size if retry volume is high.
+2. Consider surfacing real Sheet update timestamps to replace the current cache-created `since` filter approximation.
+3. Decide on an appropriate `IDEMPOTENCY_TTL_SECONDS` for production retry behaviour and configure purge cadence (either via `/admin/idempotency/purge` or a scheduled job).
+4. Monitor `/sync/status` after enabling to confirm runs, and keep an eye on the idempotency table size if retry volume is high.
 
 Paths:
 - Application package: `sheetbridge/`
-- Entrypoint: `sheetbridge/main.py` (`/append` idempotency handling + admin purge)
+- Entrypoint: `sheetbridge/main.py` (`/rows` filters, `/append` idempotency handling + admin purge)
 - Scheduler module: `sheetbridge/scheduler.py`
-- Store + idempotency helpers: `sheetbridge/store.py`
-- Tests: `tests/` (see new `test_idempotency.py`)
+- Store + idempotency helpers: `sheetbridge/store.py` (rows cache now records `created_at` timestamps, exposes `insert_rows` + `query_rows` helpers)
+- Tests: `tests/` (includes `test_rows_filters.py` and `test_idempotency.py`)
 - CI workflow: `.github/workflows/ci.yml`
+
+Implementation notes:
+- `Row.created_at` captures the cache insertion second for each batch of inserted rows; `/rows?since=` comparisons currently use this timestamp as a proxy for freshness.
+- `query_rows` filters substring matches by casting the JSON payload to text and applying a `LOWER(...) LIKE %query%` check. SQLite handles this via its `TEXT` representation; if we move to a database without JSON casting support we may need a dedicated search strategy.
+- Future enhancement: persist upstream Sheet update timestamps or per-row hashes to make `since` filtering reflect actual Sheet edits rather than cache time.
 
 Env:
 - Python 3.11 virtualenv (`python -m venv .venv && source .venv/bin/activate`)
@@ -28,6 +34,7 @@ Scheduler snapshot:
 
 Tests:
 - `pytest -q`
+- `tests/test_rows_filters.py` exercises `/rows` projection, substring search, and `since` filtering.
 - `tests/test_idempotency.py` covers retry caching, replay headers, and TTL expiry logic.
 
 Google Auth handoff:

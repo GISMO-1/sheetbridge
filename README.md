@@ -21,6 +21,12 @@ Open http://127.0.0.1:8000/docs
 - To install dev tooling without editable mode: `pip install -e ".[dev]"` after activating a Python 3.11 virtualenv.
 - Linting is configured with Ruff (see `pyproject.toml`).
 
+### Filtering and projection
+- `GET /rows?q=alice` → case-insensitive search across the JSON payload of each cached row.
+- `GET /rows?columns=id,name` → return only those keys per row (projection happens after filtering and pagination).
+- `GET /rows?since=2025-09-26T00:00:00Z` or `GET /rows?since=1696032000` → include rows with a cache timestamp greater than or equal to the supplied moment.
+- Responses now include `total`, `limit`, and `offset` alongside the projected `rows` payload for pagination UX.
+
 ## Google Auth
 - Service account: set `GOOGLE_SERVICE_ACCOUNT_JSON` to the JSON string. Optionally set `DELEGATED_SUBJECT` for domain-wide delegation.
 - User OAuth: store the client secrets file on disk and set `GOOGLE_OAUTH_CLIENT_SECRETS=/workspace/client_secrets.json`. The first `GET /sync` run will walk through the console/device flow.
