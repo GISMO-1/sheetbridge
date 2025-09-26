@@ -1,36 +1,82 @@
+from __future__ import annotations
+
+import asyncio
+from contextlib import asynccontextmanager, suppress
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
 from fastapi import Body, Depends, FastAPI, HTTPException, Query
 from pydantic import BaseModel
-from pathlib import Path
-from datetime import datetime
+
+from .auth import require_write_token
 from .config import settings
 from .oauth import resolve_credentials
+from .scheduler import run_periodic, state as sync_state
 from .sheets import fetch_sheet
 from .store import init_db, list_rows, upsert_rows
-from .auth import require_write_token
 
-app = FastAPI(title="SheetBridge", version="0.1.0")
 
 class Health(BaseModel):
     status: str
     time: str
 
-@app.on_event("startup")
-def boot():
+
+def _sync_once_sync() -> int:
+    creds = resolve_credentials(
+        settings.GOOGLE_OAUTH_CLIENT_SECRETS,
+        settings.GOOGLE_SERVICE_ACCOUNT_JSON,
+        settings.DELEGATED_SUBJECT,
+        settings.TOKEN_STORE,
+        scope="read",
+    )
+    if not creds:
+        raise RuntimeError("Google credentials not configured")
+    rows = fetch_sheet(creds)
+    upsert_rows(rows)
+    return len(rows)
+
+
+async def _sync_once() -> None:
+    await asyncio.to_thread(_sync_once_sync)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     Path(settings.CACHE_DB_PATH).touch(exist_ok=True)
     init_db()
-    if str(getattr(settings, "SYNC_ON_START", 0)) in {"1", "true", "True"}:
-        try:
-            sync()
-        except Exception:
-            pass
+    task: Optional[asyncio.Task[None]] = None
+    if bool(getattr(settings, "SYNC_ENABLED", False)):
+        async def loop() -> None:
+            await run_periodic(
+                _sync_once,
+                settings.SYNC_INTERVAL_SECONDS,
+                settings.SYNC_JITTER_SECONDS,
+                settings.SYNC_BACKOFF_MAX_SECONDS,
+            )
+
+        task = asyncio.create_task(loop())
+    try:
+        yield
+    finally:
+        if task:
+            task.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await task
+
+
+app = FastAPI(title="SheetBridge", version="0.2.0", lifespan=lifespan)
+
 
 @app.get("/health", response_model=Health)
 def health():
     return Health(status="ok", time=datetime.utcnow().isoformat())
 
+
 @app.get("/rows")
 def get_rows(limit: int = Query(100, ge=1, le=1000), offset: int = Query(0, ge=0)):
     return {"rows": list_rows(limit=limit, offset=offset)}
+
 
 @app.post("/rows")
 def add_row(row: dict = Body(...), _=Depends(require_write_token)):
@@ -67,14 +113,24 @@ def append(row: dict = Body(...), _=Depends(require_write_token)):
 
 @app.get("/sync")
 def sync():
-    creds = resolve_credentials(
-        settings.GOOGLE_OAUTH_CLIENT_SECRETS,
-        settings.GOOGLE_SERVICE_ACCOUNT_JSON,
-        settings.DELEGATED_SUBJECT,
-        settings.TOKEN_STORE,
-    )
-    if not creds:
-        raise HTTPException(status_code=503, detail="Google credentials not configured")
-    rows = fetch_sheet(creds)
-    upsert_rows(rows)
-    return {"synced": len(rows)}
+    try:
+        synced = _sync_once_sync()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"synced": synced}
+
+
+@app.get("/sync/status")
+def sync_status():
+    return {
+        "running": sync_state.running,
+        "last_started": sync_state.last_started,
+        "last_finished": sync_state.last_finished,
+        "last_error": sync_state.last_error,
+        "total_runs": sync_state.total_runs,
+        "total_errors": sync_state.total_errors,
+        "enabled": bool(getattr(settings, "SYNC_ENABLED", False)),
+        "interval": settings.SYNC_INTERVAL_SECONDS,
+        "jitter": settings.SYNC_JITTER_SECONDS,
+        "backoff_max": settings.SYNC_BACKOFF_MAX_SECONDS,
+    }
