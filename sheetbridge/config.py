@@ -14,6 +14,8 @@ class Settings(BaseModel):
     GOOGLE_WORKSHEET: str = Field(default="Sheet1")
     CACHE_DB_PATH: str = Field(default="sheetbridge.db")
     API_TOKEN: str = Field(default="dev_token")  # simple bearer for writes
+    API_KEYS: str = Field(default="", description="comma-separated API keys")
+    CORS_ALLOW_ORIGINS: str = Field(default="*")
     SYNC_SECONDS: int = Field(default=60)
     GOOGLE_OAUTH_CLIENT_SECRETS: Optional[str] = Field(default=None)
     GOOGLE_SERVICE_ACCOUNT_JSON: Optional[str] = Field(default=None)

@@ -16,10 +16,11 @@ from fastapi import (
     Response,
     Request,
 )
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from .auth import require_write_token
+from .auth import require_auth, require_write_token
 from .config import settings
 from .logging import AccessLogMiddleware
 from .metrics import MetricsHook, metrics_response
@@ -89,6 +90,14 @@ metrics = MetricsHook()
 
 app = FastAPI(title="SheetBridge", version="0.3.0", lifespan=lifespan)
 app.add_middleware(AccessLogMiddleware)
+
+origins = [o.strip() for o in settings.CORS_ALLOW_ORIGINS.split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins or ["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.middleware("http")
@@ -211,7 +220,7 @@ def append(
 
 
 @app.post("/admin/idempotency/purge")
-def purge_idempotency(_=Depends(require_write_token)):
+def purge_idempotency(_=Depends(require_auth)):
     purged = purge_idempotency_older_than(settings.IDEMPOTENCY_TTL_SECONDS)
     return {"purged": int(purged)}
 
