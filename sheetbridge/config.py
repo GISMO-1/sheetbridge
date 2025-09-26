@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Any, Optional
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field, ValidationError
@@ -15,6 +15,11 @@ class Settings(BaseModel):
     CACHE_DB_PATH: str = Field(default="sheetbridge.db")
     API_TOKEN: str = Field(default="dev_token")  # simple bearer for writes
     SYNC_SECONDS: int = Field(default=60)
+    GOOGLE_OAUTH_CLIENT_SECRETS: Optional[str] = Field(default=None)
+    GOOGLE_SERVICE_ACCOUNT_JSON: Optional[str] = Field(default=None)
+    DELEGATED_SUBJECT: Optional[str] = Field(default=None)
+    TOKEN_STORE: str = Field(default=".tokens/sheets.json")
+    SYNC_ON_START: bool = Field(default=False)
 
 
 def _load_settings() -> Settings:

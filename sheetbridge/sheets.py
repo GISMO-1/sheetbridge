@@ -1,6 +1,8 @@
-from typing import List, Dict
+from typing import Dict, List
+
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
+
 from .config import settings
 
 def _service(creds: Credentials):
@@ -31,3 +33,7 @@ def append_row(creds: Credentials, row: Dict):
         insertDataOption="INSERT_ROWS",
         body=body,
     ).execute()
+
+
+def fetch_sheet_with_auto_creds(creds: Credentials) -> list[dict]:
+    return fetch_sheet(creds)
