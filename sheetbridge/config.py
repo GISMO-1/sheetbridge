@@ -25,6 +25,7 @@ class Settings(BaseModel):
     SYNC_INTERVAL_SECONDS: int = Field(default=300)
     SYNC_JITTER_SECONDS: int = Field(default=15)
     SYNC_BACKOFF_MAX_SECONDS: int = Field(default=600)
+    IDEMPOTENCY_TTL_SECONDS: int = Field(default=86400)
 
 
 def _load_settings() -> Settings:

@@ -35,5 +35,11 @@ Open http://127.0.0.1:8000/docs
 
 ## Write-back
 - Enable write-back by setting `ALLOW_WRITE_BACK=1` (or `true`) and calling the authenticated `POST /append` endpoint with the bearer token defined by `API_TOKEN`.
-- Requests are cached immediately via SQLite; if Google credentials with write scope are unavailable the API responds with `{"inserted": 1, "wrote": False}` and will not attempt the remote append.
-- Provide write credentials via either a service account (`GOOGLE_SERVICE_ACCOUNT_JSON` + optional `DELEGATED_SUBJECT`) or user OAuth (`GOOGLE_OAUTH_CLIENT_SECRETS` + token flow). When credentials resolve successfully, `/append` issues a Sheets `values.append` call ordered by the header row and responds with `{"inserted": 1, "wrote": True}`.
+- Requests are cached immediately via SQLite; if Google credentials with write scope are unavailable the API responds with `{"inserted": 1, "wrote": False, "idempotency_key": null}` and will not attempt the remote append.
+- Provide write credentials via either a service account (`GOOGLE_SERVICE_ACCOUNT_JSON` + optional `DELEGATED_SUBJECT`) or user OAuth (`GOOGLE_OAUTH_CLIENT_SECRETS` + token flow). When credentials resolve successfully, `/append` issues a Sheets `values.append` call ordered by the header row and responds with `{"inserted": 1, "wrote": True, "idempotency_key": null}` unless an idempotency key is supplied.
+
+## Idempotency
+- Use the optional `Idempotency-Key` header on `POST /append` calls to deduplicate retries. The first write stores the JSON response in the cache and subsequent calls with the same key return that payload verbatim with an extra `Idempotency-Replayed: 1` header.
+- Every `/append` reply follows `{"inserted": 1, "wrote": <bool>, "idempotency_key": <string|null>}`; when idempotency is active the cached structure is reused.
+- Entries expire based on `IDEMPOTENCY_TTL_SECONDS` (default 86,400 seconds). Override the environment variable to change the retention window.
+- Run the authenticated `POST /admin/idempotency/purge` maintenance endpoint to delete expired entries immediately. The endpoint responds with `{"purged": <count>}` indicating how many records were removed.

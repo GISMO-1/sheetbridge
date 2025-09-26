@@ -77,4 +77,8 @@ def test_append_accepts_without_creds_returns_202_like(tmp_path: Path):
             json={"x": 1},
         )
     assert response.status_code == 200
-    assert response.json() == {"inserted": 1, "wrote": False}
+    assert response.json() == {
+        "inserted": 1,
+        "wrote": False,
+        "idempotency_key": None,
+    }

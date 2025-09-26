@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Body, Depends, FastAPI, HTTPException, Query
+from fastapi import Body, Depends, FastAPI, HTTPException, Query, Header, Response
 from pydantic import BaseModel
 
 from .auth import require_write_token
@@ -14,7 +14,14 @@ from .config import settings
 from .oauth import resolve_credentials
 from .scheduler import run_periodic, state as sync_state
 from .sheets import fetch_sheet
-from .store import init_db, list_rows, upsert_rows
+from .store import (
+    get_idempotency,
+    init_db,
+    list_rows,
+    purge_idempotency_older_than,
+    save_idempotency,
+    upsert_rows,
+)
 
 
 class Health(BaseModel):
@@ -86,7 +93,19 @@ def add_row(row: dict = Body(...), _=Depends(require_write_token)):
 
 
 @app.post("/append")
-def append(row: dict = Body(...), _=Depends(require_write_token)):
+def append(
+    response: Response,
+    row: dict = Body(...),
+    _=Depends(require_write_token),
+    idem_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    ttl = getattr(settings, "IDEMPOTENCY_TTL_SECONDS", 86400)
+    if idem_key:
+        cached = get_idempotency(idem_key, ttl)
+        if cached is not None:
+            response.headers["Idempotency-Replayed"] = "1"
+            return cached
+
     allow_write = str(getattr(settings, "ALLOW_WRITE_BACK", 0)).lower() in {
         "1",
         "true",
@@ -94,7 +113,11 @@ def append(row: dict = Body(...), _=Depends(require_write_token)):
         "on",
     }
     if not allow_write:
-        raise HTTPException(status_code=403, detail="write-back disabled")
+        out = {"inserted": 0, "wrote": False, "idempotency_key": idem_key or None}
+        if idem_key:
+            save_idempotency(idem_key, out)
+        response.status_code = 403
+        return out
     upsert_rows([row])
     creds = resolve_credentials(
         settings.GOOGLE_OAUTH_CLIENT_SECRETS,
@@ -104,11 +127,23 @@ def append(row: dict = Body(...), _=Depends(require_write_token)):
         scope="write",
     )
     if not creds:
-        return {"inserted": 1, "wrote": False}
+        out = {"inserted": 1, "wrote": False, "idempotency_key": idem_key or None}
+        if idem_key:
+            save_idempotency(idem_key, out)
+        return out
     from .sheets import append_row
 
     append_row(creds, row)
-    return {"inserted": 1, "wrote": True}
+    out = {"inserted": 1, "wrote": True, "idempotency_key": idem_key or None}
+    if idem_key:
+        save_idempotency(idem_key, out)
+    return out
+
+
+@app.post("/admin/idempotency/purge")
+def purge_idempotency(_=Depends(require_write_token)):
+    purged = purge_idempotency_older_than(settings.IDEMPOTENCY_TTL_SECONDS)
+    return {"purged": int(purged)}
 
 
 @app.get("/sync")
