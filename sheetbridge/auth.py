@@ -14,8 +14,8 @@ def require_auth(
     authorization: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ):
-    valid_tokens = {settings.API_TOKEN, "dev_token"}
-    valid_tokens = {token for token in valid_tokens if token}
+    configured_token = (settings.API_TOKEN or "").strip()
+    valid_tokens = {configured_token} if configured_token else set()
     valid_keys = {k.strip() for k in settings.API_KEYS.split(",") if k.strip()}
     if authorization and authorization.startswith("Bearer "):
         token = authorization.split(" ", 1)[1].strip()
