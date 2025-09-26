@@ -55,4 +55,11 @@ Open http://127.0.0.1:8000/docs
 - Use the optional `Idempotency-Key` header on `POST /append` calls to deduplicate retries. The first write stores the JSON response in the cache and subsequent calls with the same key return that payload verbatim with an extra `Idempotency-Replayed: 1` header.
 - Every `/append` reply follows `{"inserted": 1, "wrote": <bool>, "idempotency_key": <string|null>}`; when idempotency is active the cached structure is reused.
 - Entries expire based on `IDEMPOTENCY_TTL_SECONDS` (default 86,400 seconds). Override the environment variable to change the retention window.
-- Run the authenticated `POST /admin/idempotency/purge` maintenance endpoint to delete expired entries immediately. The endpoint responds with `{"purged": <count>}` indicating how many records were removed.
+- Run the authenticated `POST /admin/idempotency/purge` maintenance endpoint to delete expired entries immediately. The endpoint responds with `{"purged": <count>}` indicating how many records were removed. All `/admin/*` routes require either a legacy bearer token or a configured API key.
+
+### Authentication
+- Bearer tokens (legacy, `Authorization: Bearer dev_token`)
+- API keys: set `API_KEYS` env var (comma-separated). Use header `X-API-Key: <key>`.
+
+### CORS
+Set `CORS_ALLOW_ORIGINS` to a comma list (`http://localhost:3000,http://example.com`).
