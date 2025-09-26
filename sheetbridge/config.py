@@ -21,6 +21,10 @@ class Settings(BaseModel):
     TOKEN_STORE: str = Field(default=".tokens/sheets.json")
     SYNC_ON_START: bool = Field(default=False)
     ALLOW_WRITE_BACK: bool = Field(default=False)
+    SYNC_ENABLED: bool = Field(default=False)
+    SYNC_INTERVAL_SECONDS: int = Field(default=300)
+    SYNC_JITTER_SECONDS: int = Field(default=15)
+    SYNC_BACKOFF_MAX_SECONDS: int = Field(default=600)
 
 
 def _load_settings() -> Settings:
