@@ -20,6 +20,7 @@ Open http://127.0.0.1:8000/docs
 - Environment variables can be loaded from `.env`.
 - To install dev tooling without editable mode: `pip install -e ".[dev]"` after activating a Python 3.11 virtualenv.
 - Linting is configured with Ruff (see `pyproject.toml`).
+- `init_db()` automatically backfills the cached rows table with a `created_at` column if a legacy database is missing it, so `/rows?since=` continues working after upgrades without manual intervention.
 
 ### Filtering and projection
 - `GET /rows?q=alice` → case-insensitive search across the JSON payload of each cached row.

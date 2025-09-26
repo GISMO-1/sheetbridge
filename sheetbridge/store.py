@@ -24,6 +24,23 @@ class Idempotency(SQLModel, table=True):
 def init_db():
     SQLModel.metadata.create_all(engine)
 
+    with engine.begin() as connection:
+        table_name = Row.__tablename__
+        pragma_rows = connection.exec_driver_sql(
+            f"PRAGMA table_info('{table_name}')"
+        ).all()
+        has_created_at = any(column[1] == "created_at" for column in pragma_rows)
+
+        if not has_created_at:
+            connection.exec_driver_sql(
+                f'ALTER TABLE "{table_name}" ADD COLUMN created_at INTEGER'
+            )
+            connection.exec_driver_sql(
+                f'UPDATE "{table_name}" '
+                "SET created_at = CAST(strftime('%s', 'now') AS INTEGER) "
+                "WHERE created_at IS NULL"
+            )
+
 def insert_rows(rows: list[dict]):
     now = int(time())
     with Session(engine) as session:
