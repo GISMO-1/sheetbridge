@@ -17,6 +17,7 @@ Paths:
 
 Implementation notes:
 - `Row.created_at` captures the cache insertion second for each batch of inserted rows; `/rows?since=` comparisons currently use this timestamp as a proxy for freshness.
+- `init_db()` now runs a lightweight SQLite migration to add and backfill the `created_at` column on legacy cache databases so upgrades do not require manual rebuilds.
 - `query_rows` filters substring matches by casting the JSON payload to text and applying a `LOWER(...) LIKE %query%` check. SQLite handles this via its `TEXT` representation; if we move to a database without JSON casting support we may need a dedicated search strategy.
 - Future enhancement: persist upstream Sheet update timestamps or per-row hashes to make `since` filtering reflect actual Sheet edits rather than cache time.
 
