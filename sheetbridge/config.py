@@ -34,6 +34,7 @@ class Settings(BaseModel):
     RATE_LIMIT_BURST: int = Field(default=20)
     SCHEMA_JSON_PATH: str = Field(default="schema.json")
     KEY_COLUMN: str | None = Field(default=None)
+    UPSERT_STRICT: bool = Field(default=True)
 
 
 def _load_settings() -> Settings:

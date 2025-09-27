@@ -32,12 +32,15 @@ from .sheets import fetch_sheet
 from .store import (
     dlq_list,
     dlq_write,
+    find_duplicates,
     get_idempotency,
     init_db,
     insert_rows,
     purge_idempotency_older_than,
     query_rows,
     save_idempotency,
+    upsert_by_key,
+    upsert_rows,
 )
 from .validate import validate_row
 
@@ -204,27 +207,25 @@ def append(
         return {"detail": "invalid", "reason": reason}
 
     key_column = getattr(settings, "KEY_COLUMN", None)
-    if key_column:
-        key_value = cleaned.get(key_column)
-        missing_key = False
-        if key_value is None:
-            missing_key = True
-        elif isinstance(key_value, str) and not key_value.strip():
-            missing_key = True
-        if missing_key:
-            dlq_write("missing_key", row)
-            response.status_code = 422
-            return {"detail": "invalid", "reason": "missing_key"}
-
-    row = cleaned
+    stored = 0
+    try:
+        if key_column:
+            stored = upsert_by_key(
+                [cleaned], key_column, getattr(settings, "UPSERT_STRICT", True)
+            )
+        else:
+            stored = upsert_rows([cleaned])
+    except ValueError as exc:
+        dlq_write(str(exc), row)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     if not allow_write:
-        out = {"inserted": 0, "wrote": False, "idempotency_key": idem_key or None}
+        out = {"inserted": stored, "wrote": False, "idempotency_key": idem_key or None}
         if idem_key:
             save_idempotency(idem_key, out)
         response.status_code = 403
         return out
-    insert_rows([row])
+    row = cleaned
     creds = resolve_credentials(
         settings.GOOGLE_OAUTH_CLIENT_SECRETS,
         settings.GOOGLE_SERVICE_ACCOUNT_JSON,
@@ -233,17 +234,24 @@ def append(
         scope="write",
     )
     if not creds:
-        out = {"inserted": 1, "wrote": False, "idempotency_key": idem_key or None}
+        out = {"inserted": stored, "wrote": False, "idempotency_key": idem_key or None}
         if idem_key:
             save_idempotency(idem_key, out)
         return out
     from .sheets import append_row
 
     append_row(creds, row)
-    out = {"inserted": 1, "wrote": True, "idempotency_key": idem_key or None}
+    out = {"inserted": stored, "wrote": True, "idempotency_key": idem_key or None}
     if idem_key:
         save_idempotency(idem_key, out)
     return out
+
+
+@app.get("/admin/dupes")
+def admin_dupes(_=Depends(require_auth)):
+    if not settings.KEY_COLUMN:
+        return {"detail": "no key_column set"}
+    return {"duplicates": find_duplicates(settings.KEY_COLUMN)}
 
 
 @app.get("/admin/schema")

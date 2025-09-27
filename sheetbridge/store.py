@@ -10,6 +10,10 @@ engine = create_engine(f"sqlite:///{settings.CACHE_DB_PATH}", echo=False)
 
 class Row(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
+    key: str | None = Field(
+        default=None,
+        sa_column=Column(String, nullable=True, index=True),
+    )
     data: dict[str, Any] = Field(sa_column=Column(JSON))
     created_at: int = Field(
         sa_column=Column(Integer, nullable=False, default=int(time()))
@@ -39,6 +43,7 @@ def init_db():
             f"PRAGMA table_info('{table_name}')"
         ).all()
         has_created_at = any(column[1] == "created_at" for column in pragma_rows)
+        has_key = any(column[1] == "key" for column in pragma_rows)
 
         if not has_created_at:
             connection.exec_driver_sql(
@@ -49,17 +54,75 @@ def init_db():
                 "SET created_at = CAST(strftime('%s', 'now') AS INTEGER) "
                 "WHERE created_at IS NULL"
             )
+        if not has_key:
+            connection.exec_driver_sql(
+                f'ALTER TABLE "{table_name}" ADD COLUMN key TEXT'
+            )
+        connection.exec_driver_sql(
+            f'CREATE INDEX IF NOT EXISTS idx_{table_name}_key '
+            f'ON "{table_name}" (key)'
+        )
 
-def insert_rows(rows: list[dict]):
+def insert_rows(rows: list[dict]) -> int:
+    now = int(time())
+    key_column = getattr(settings, "KEY_COLUMN", None)
+    with Session(engine) as session:
+        inserted = 0
+        for row in rows:
+            key_value: str | None = None
+            if key_column:
+                value = row.get(key_column)
+                if value is not None:
+                    key_value = str(value)
+            session.add(Row(key=key_value, data=row, created_at=now))
+            inserted += 1
+        session.commit()
+        return inserted
+
+
+def upsert_rows(rows: list[dict]) -> int:
+    return insert_rows(rows)
+
+
+def upsert_by_key(rows: list[dict], key_column: str, strict: bool = True) -> int:
     now = int(time())
     with Session(engine) as session:
+        touched = 0
         for row in rows:
-            session.add(Row(data=row, created_at=now))
+            key_value = row.get(key_column)
+            if key_value is None:
+                if strict:
+                    raise ValueError(f"missing key {key_column}")
+                continue
+            key_text = str(key_value)
+            existing = session.exec(
+                select(Row).where(Row.key == key_text)
+            ).first()
+            if existing:
+                existing.data = row
+                existing.created_at = now
+                touched += 1
+            else:
+                session.add(Row(key=key_text, data=row, created_at=now))
+                touched += 1
         session.commit()
+        return touched
 
 
-def upsert_rows(rows: list[dict]):
-    insert_rows(rows)
+def find_duplicates(key_column: str):
+    if not key_column:
+        return []
+    with Session(engine) as session:
+        statement = (
+            select(Row.key, func.count(Row.key))
+            .group_by(Row.key)
+            .having(func.count(Row.key) > 1)
+        )
+        return [
+            {"key": key, "count": count}
+            for key, count in session.exec(statement)
+            if key is not None
+        ]
 
 
 def list_rows(limit: int = 100, offset: int = 0):
