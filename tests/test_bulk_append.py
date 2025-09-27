@@ -84,6 +84,22 @@ def test_bulk_mixed(tmp_path: Path):
     assert data["count"] == 1
 
 
+def test_bulk_missing_key_not_strict(tmp_path: Path):
+    overrides = {"UPSERT_STRICT": "0"}
+    with _client(tmp_path, overrides=overrides) as client:
+        body = [{"id": "1", "name": "A"}, {"name": "no_id"}]
+        response = client.post(
+            "/bulk/append", headers={"X-API-Key": "k1"}, json=body
+        )
+        rows = store.list_rows()
+    assert response.status_code == 200
+    data = response.json()
+    assert data["accepted"] == [0, 1]
+    assert data["rejected"] == []
+    assert data["count"] == 2
+    assert len(rows) == 2
+
+
 def test_bulk_idempotency(tmp_path: Path):
     with _client(tmp_path) as client:
         payload = [{"id": "1"}]

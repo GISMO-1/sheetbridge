@@ -274,6 +274,8 @@ def bulk_append(
     ok_rows: list[int] = []
     bad_rows: list[dict[str, object]] = []
     cleaned_rows: list[tuple[int, dict]] = []
+    keyed_payload: list[dict] = []
+    fallback_payload: list[dict] = []
     key_column = getattr(settings, "KEY_COLUMN", None)
     strict_keys = bool(getattr(settings, "UPSERT_STRICT", True))
 
@@ -283,20 +285,30 @@ def bulk_append(
             bad_rows.append({"index": idx, "reason": reason})
             dlq_write(reason or "invalid", row)
             continue
-        if key_column and strict_keys and cleaned.get(key_column) is None:
-            reason = f"missing key:{key_column}"
-            bad_rows.append({"index": idx, "reason": reason})
-            dlq_write(reason, row)
-            continue
+        if key_column:
+            key_value = cleaned.get(key_column)
+            if key_value is None and strict_keys:
+                reason = f"missing key:{key_column}"
+                bad_rows.append({"index": idx, "reason": reason})
+                dlq_write(reason, row)
+                continue
+            if key_value is None:
+                fallback_payload.append(cleaned)
+            else:
+                keyed_payload.append(cleaned)
+        else:
+            fallback_payload.append(cleaned)
         cleaned_rows.append((idx, cleaned))
         ok_rows.append(idx)
 
     if cleaned_rows:
-        payload = [clean for _, clean in cleaned_rows]
         if key_column:
-            upsert_by_key_bulk(payload, key_column, strict_keys)
+            if keyed_payload:
+                upsert_by_key_bulk(keyed_payload, key_column, strict_keys)
+            if fallback_payload:
+                upsert_rows_bulk(fallback_payload)
         else:
-            upsert_rows_bulk(payload)
+            upsert_rows_bulk(fallback_payload)
 
     wrote = False
     if bool(getattr(settings, "ALLOW_WRITE_BACK", False)) and cleaned_rows:
