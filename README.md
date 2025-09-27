@@ -24,7 +24,7 @@ docker compose up -d
 curl -H "X-API-Key: dev_key" http://localhost:8000/health
 ```
 - Data persists under `./data/sheetbridge.db` via the Compose volume mapping.
-- OAuth tokens live at `./tokens/sheets.json` so the container can be recycled safely.
+- OAuth tokens live at `./tokens/sheets.json`; the directory stays gitignored so credentials remain local to the host.
 - Replace the default image tag with a pinned version for production rollouts (e.g., `ghcr.io/<org>/sheetbridge:v0.1.0`).
 
 ### Observability
