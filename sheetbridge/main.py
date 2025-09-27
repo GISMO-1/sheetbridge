@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime
 from pathlib import Path
@@ -23,8 +24,8 @@ from pydantic import BaseModel
 from . import schema as schema_mod
 from .auth import require_auth, require_write_token
 from .config import settings, reload_settings
-from .logging import AccessLogMiddleware
-from .metrics import MetricsHook, metrics_response
+from .logging_setup import RequestLogMiddleware, init_logging
+from .metrics import LAT, REQS, router as metrics_router
 from .oauth import resolve_credentials
 from .ratelimit import allow
 from .scheduler import run_periodic, state as sync_state
@@ -99,10 +100,11 @@ async def lifespan(app: FastAPI):
                 await task
 
 
-metrics = MetricsHook()
+init_logging(settings.LOG_LEVEL)
 
 app = FastAPI(title="SheetBridge", version="0.3.0", lifespan=lifespan)
-app.add_middleware(AccessLogMiddleware)
+app.add_middleware(RequestLogMiddleware)
+app.include_router(metrics_router())
 
 origins = [o.strip() for o in settings.CORS_ALLOW_ORIGINS.split(",") if o.strip()]
 app.add_middleware(
@@ -117,25 +119,27 @@ app.add_middleware(
 async def _metrics_and_rate(request: Request, call_next):
     method = request.method
     path = request.url.path
-    start = await metrics.before(method, path)
-    if getattr(settings, "RATE_LIMIT_ENABLED", False):
-        client_host = request.client.host if request.client else "unknown"
-        allowed = allow(
-            client_host,
-            float(getattr(settings, "RATE_LIMIT_RPS", 5.0)),
-            int(getattr(settings, "RATE_LIMIT_BURST", 20)),
-        )
-        if not allowed:
-            response = JSONResponse({"detail": "rate limit"}, status_code=429)
-            await metrics.after(method, path, response.status_code, start)
-            return response
+    start = time.time()
+    status_code = 500
     try:
+        if getattr(settings, "RATE_LIMIT_ENABLED", False):
+            client_host = request.client.host if request.client else "unknown"
+            allowed = allow(
+                client_host,
+                float(getattr(settings, "RATE_LIMIT_RPS", 5.0)),
+                int(getattr(settings, "RATE_LIMIT_BURST", 20)),
+            )
+            if not allowed:
+                response = JSONResponse({"detail": "rate limit"}, status_code=429)
+                status_code = response.status_code
+                return response
         response = await call_next(request)
-    except Exception:
-        await metrics.after(method, path, 500, start)
-        raise
-    await metrics.after(method, path, response.status_code, start)
-    return response
+        status_code = response.status_code
+        return response
+    finally:
+        duration = time.time() - start
+        REQS.labels(method, path, str(status_code)).inc()
+        LAT.labels(method, path).observe(duration)
 
 
 @app.get("/health", response_model=Health)
@@ -395,6 +399,3 @@ def sync_status():
     }
 
 
-@app.get("/metrics", include_in_schema=False)
-def metrics_endpoint():
-    return metrics_response()

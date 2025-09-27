@@ -41,7 +41,7 @@ def test_metrics_endpoint(tmp_path: Path) -> None:
     with _client(tmp_path) as client:
         response = client.get("/metrics")
     assert response.status_code == 200
-    assert b"sb_requests_total" in response.content
+    assert b"sheetbridge_requests_total" in response.content
 
 
 def test_rate_limit_blocks(tmp_path: Path) -> None:
