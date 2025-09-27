@@ -1,5 +1,5 @@
 # HANDOFF
-Status: Background sync scheduler remains available and disabled by default until credentials arrive. FastAPI startup now invokes `sheetbridge.config.reload_settings()` so each lifespan reload picks up env overrides before touching the cache or schema and rebuilds the SQLite engine via `sheetbridge.store.refresh_engine()` before migrations run. `/append` retains idempotent writes backed by SQLite with configurable TTL + purge endpoint, enforces schema contracts with coercion + required-field checks, and now performs deterministic cache upserts whenever `KEY_COLUMN` is configured so duplicate keys refresh existing rows instead of creating new ones. Contract violations or missing keys (when `UPSERT_STRICT` is enabled) return HTTP 422 and are persisted to the dead-letter queue. `/rows` continues to offer substring filtering, column projection, and a `since` cursor based on cache insertion time alongside pagination metadata. Structured JSON access logs emit per-request with request IDs, `/metrics` serves Prometheus counters/histograms, and an optional per-IP token bucket limiter can gate traffic. Admin maintenance endpoints require either the legacy bearer token or a configured API key via the shared `require_auth` helper, and CORS middleware respects the `CORS_ALLOW_ORIGINS` allow-list. `/admin/schema`, `/admin/dlq`, and the new `/admin/dupes` endpoint expose schema state, the dead-letter queue, and duplicate key diagnostics over authenticated calls.
+Status: Background sync scheduler remains available and disabled by default until credentials arrive. FastAPI startup now invokes `sheetbridge.config.reload_settings()` so each lifespan reload picks up env overrides before touching the cache or schema and rebuilds the SQLite engine via `sheetbridge.store.refresh_engine()` before migrations run. `/append` retains idempotent writes backed by SQLite with configurable TTL + purge endpoint, enforces schema contracts with coercion + required-field checks, and now performs deterministic cache upserts whenever `KEY_COLUMN` is configured so duplicate keys refresh existing rows instead of creating new ones. Contract violations or missing keys (when `UPSERT_STRICT` is enabled) return HTTP 422 and are persisted to the dead-letter queue. `/rows` continues to offer substring filtering, column projection, and a `since` cursor based on cache insertion time alongside pagination metadata. Structured JSON access logs emit per-request with request IDs, `/metrics` serves Prometheus counters/histograms, and an optional per-IP token bucket limiter can gate traffic. Admin maintenance endpoints require either the legacy bearer token or a configured API key via the shared `require_auth` helper, and CORS middleware respects the `CORS_ALLOW_ORIGINS` allow-list. `/admin/schema`, `/admin/dlq`, and the new `/admin/dupes` endpoint expose schema state, the dead-letter queue, and duplicate key diagnostics over authenticated calls. OpenAPI is now locked to `openapi.json`; regenerate via `python -m sheetbridge.openapi_tool --out openapi.json` (or `make schema`) and CI enforces drift with a deterministic spec generator.
 
 Key upsert snapshot:
 - `KEY_COLUMN`: unset (`None` by default; enable to deduplicate cache rows on `/append`).
@@ -9,12 +9,13 @@ Key upsert snapshot:
 Next:
 1. Implement bulk `/bulk/append` ingestion that reuses validation, idempotency, and the new key-based upsert semantics.
 2. Author and upload the canonical schema contract via `/admin/schema` (or ship `schema.json`) once downstream consumers finalize the column set; defaults remain permissive until then.
-3. Decide on and configure `KEY_COLUMN` when ready to deduplicate cache rows, then monitor `/admin/dupes` for anomalies once enabled.
-4. Supply Google read credentials and flip `SYNC_ENABLED=1` when ready to let the scheduler hydrate the cache automatically.
-5. Populate `API_KEYS` with one or more secrets and narrow `CORS_ALLOW_ORIGINS` to trusted origins before exposing admin tooling.
-6. Consider surfacing real Sheet update timestamps to replace the current cache-created `since` filter approximation.
-7. Decide on an appropriate `IDEMPOTENCY_TTL_SECONDS` for production retry behaviour and configure purge cadence (either via `/admin/idempotency/purge` or a scheduled job).
-8. Monitor `/sync/status` after enabling to confirm runs, keep an eye on the idempotency table size if retry volume is high, review `/admin/dlq` regularly for schema rejects, and audit `/admin/dupes` if a key column is active.
+3. After API surface changes, run `make schema` (or `python -m sheetbridge.openapi_tool --out openapi.json`) and commit the refreshed `openapi.json` to keep CI green.
+4. Decide on and configure `KEY_COLUMN` when ready to deduplicate cache rows, then monitor `/admin/dupes` for anomalies once enabled.
+5. Supply Google read credentials and flip `SYNC_ENABLED=1` when ready to let the scheduler hydrate the cache automatically.
+6. Populate `API_KEYS` with one or more secrets and narrow `CORS_ALLOW_ORIGINS` to trusted origins before exposing admin tooling.
+7. Consider surfacing real Sheet update timestamps to replace the current cache-created `since` filter approximation.
+8. Decide on an appropriate `IDEMPOTENCY_TTL_SECONDS` for production retry behaviour and configure purge cadence (either via `/admin/idempotency/purge` or a scheduled job).
+9. Monitor `/sync/status` after enabling to confirm runs, keep an eye on the idempotency table size if retry volume is high, review `/admin/dlq` regularly for schema rejects, and audit `/admin/dupes` if a key column is active.
 
 Paths:
 - Application package: `sheetbridge/`
@@ -27,6 +28,8 @@ Paths:
 - Schema contract loader + saver: `sheetbridge/schema.py`
 - Validation + coercion utilities: `sheetbridge/validate.py`
 - Store + idempotency + DLQ helpers: `sheetbridge/store.py` (rows cache records `created_at`, performs key-based upserts, exposes `insert_rows`/`query_rows`, tracks idempotency responses, and persists dead-letter rows)
+- Package init: `sheetbridge/__init__.py` lazily resolves `app` to avoid config validation before envs are set (needed for the OpenAPI tooling).
+- OpenAPI lock + CLI: `sheetbridge/openapi_tool.py`, generated `openapi.json`, and `Makefile` targets `schema` / `schema-check`.
 - Tests: `tests/` (includes `test_rows_filters.py`, `test_idempotency.py`, `test_metrics_ratelimit.py`, and `test_auth_security.py`)
 - CI workflow: `.github/workflows/ci.yml`
 
@@ -43,6 +46,7 @@ Implementation notes:
 - Token bucket rate limiting is disabled by default; enable by toggling `RATE_LIMIT_ENABLED` and tuning `RATE_LIMIT_RPS` + `RATE_LIMIT_BURST`. Buckets are keyed by client IP.
 - Future enhancement: persist upstream Sheet update timestamps or per-row hashes to make `since` filtering reflect actual Sheet edits rather than cache time.
 - `require_auth` now guards `/admin/*`, allowing the legacy bearer token (`Authorization: Bearer <API_TOKEN>`; defaults to `dev_token` unless you override the value) or any key from the comma-separated `API_KEYS` list via the `X-API-Key` header. `require_write_token` reuses the same bearer/key checks so `/append` and `/rows` writes can authenticate with either credential. `/admin/dupes` shares the same guard and surfaces keys with duplicate cached rows when a key column is configured.
+- `sheetbridge.openapi_tool` bootstraps the FastAPI app with a stub `GOOGLE_SHEET_ID`, serializes the schema with stable sorting/indentation, and either rewrites or verifies `openapi.json`; `sheetbridge/__init__.py` now defers importing `sheetbridge.main` until `app` is accessed so the CLI can run without configuring the full environment first.
 
 Env:
 - Python 3.11 virtualenv (`python -m venv .venv && source .venv/bin/activate`)
@@ -64,6 +68,7 @@ Tests:
 - `tests/test_auth_security.py` verifies `/admin/idempotency/purge` rejects unauthenticated calls and accepts valid API keys.
 - `tests/test_schema_contracts.py` exercises `/admin/schema`, `/admin/dlq`, schema persistence, type/required-field validation, and cache writes for valid rows.
 - `tests/test_key_upsert.py` validates deterministic upsert behaviour, strict key enforcement, and the duplicate inspection endpoint.
+- `tests/test_openapi_lock.py` ensures the OpenAPI generator is deterministic and emits a 3.x schema; pair with `python -m sheetbridge.openapi_tool --check --out openapi.json` (or `make schema-check`) in CI/local workflows.
 
 Schema & DLQ snapshot:
 - Current schema path: `settings.SCHEMA_JSON_PATH` (defaults to `schema.json` in the repo root). No schema file ships by default, so the contract is unset until created via `/admin/schema`.

@@ -9,6 +9,17 @@ uvicorn sheetbridge.main:app --reload
 ```
 Open http://127.0.0.1:8000/docs
 
+### Schema locking
+Generate or check the OpenAPI file pinned in this repo.
+
+```bash
+# regenerate
+python -m sheetbridge.openapi_tool --out openapi.json
+
+# CI-style check (fails on drift)
+python -m sheetbridge.openapi_tool --check --out openapi.json
+```
+
 ## What's in this repo?
 - Python 3.11 project packaged as `sheetbridge` with install metadata in `pyproject.toml` at the repo root.
 - FastAPI app entry point: `sheetbridge/main.py` (exports `app`).
