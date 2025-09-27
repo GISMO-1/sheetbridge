@@ -9,6 +9,12 @@ uvicorn sheetbridge.main:app --reload
 ```
 Open http://127.0.0.1:8000/docs
 
+### Install via Docker
+```bash
+docker run -p 8000:8000 ghcr.io/<your-org>/sheetbridge:latest
+```
+This image is published automatically whenever a new semantic version tag (`v0.x.y`) is pushed.
+
 ### Observability
 - Structured logs with method, path, status, and latency emitted via the FastAPI middleware stack.
 - Prometheus metrics exposed at `/metrics` ready for scraping.
@@ -30,6 +36,15 @@ python -m sheetbridge.openapi_tool --check --out openapi.json
 - FastAPI app entry point: `sheetbridge/main.py` (exports `app`).
 - Tests live in `tests/`; run with `pytest -q`.
 - CI pipeline: `.github/workflows/ci.yml` sets up Python 3.11, installs `.[dev]`, and runs pytest on pushes/PRs.
+- Release pipeline: `.github/workflows/release.yml` builds and publishes Docker images to GitHub Container Registry and cuts tagged GitHub Releases with generated notes.
+
+## Releases and versioning
+- SheetBridge follows semantic versioning with tags in the `v0.x.y` namespace.
+- The package version is sourced from `sheetbridge.__version__`, which is reused by packaging metadata.
+- To cut a release: bump any change log entries, commit, then run `git tag v0.1.0 && git push --tags` (replace with the target version).
+- Tag pushes trigger the release workflow, producing Docker images at `ghcr.io/<owner>/sheetbridge:<tag>` and updating the `:latest` tag.
+- GitHub Releases are created automatically with generated notes and bundle `openapi.json`, `README.md`, and `CHANGELOG.md` for downstream artifacts.
+- Roll back deployments by pinning consumers to an earlier Docker tag (e.g., `ghcr.io/<owner>/sheetbridge:v0.0.9`).
 
 ## Development notes
 - Local database cache lives at `sheetbridge.db`; configure via environment (see `sheetbridge/config.py`).
