@@ -95,7 +95,7 @@ async def lifespan(app: FastAPI):
         tasks.append(asyncio.create_task(loop()))
 
     if bool(getattr(settings, "DLQ_RETRY_ENABLED", True)):
-        async def _retry_one(row):
+        def _retry_one_sync(row):
             creds = resolve_credentials(
                 settings.GOOGLE_OAUTH_CLIENT_SECRETS,
                 settings.GOOGLE_SERVICE_ACCOUNT_JSON,
@@ -110,9 +110,10 @@ async def lifespan(app: FastAPI):
         tasks.append(
             asyncio.create_task(
                 retry_dlq(
-                    _retry_one,
+                    _retry_one_sync,
                     int(getattr(settings, "DLQ_RETRY_INTERVAL", 300)),
                     int(getattr(settings, "DLQ_RETRY_BATCH", 50)),
+                    int(getattr(settings, "DLQ_RETRY_CONCURRENCY", 4)),
                 )
             )
         )

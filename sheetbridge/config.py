@@ -40,6 +40,7 @@ class Settings(BaseModel):
     DLQ_RETRY_ENABLED: bool = Field(default=True)
     DLQ_RETRY_INTERVAL: int = Field(default=300)
     DLQ_RETRY_BATCH: int = Field(default=50)
+    DLQ_RETRY_CONCURRENCY: int = Field(default=4)
 
 
 def _load_settings(existing: Settings | None = None) -> Settings:

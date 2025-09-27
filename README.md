@@ -12,7 +12,7 @@ Open http://127.0.0.1:8000/docs
 ### Observability
 - Structured logs with method, path, status, and latency emitted via the FastAPI middleware stack.
 - Prometheus metrics exposed at `/metrics` ready for scraping.
-- Dev dependencies now include `httpx` so Starlette's `TestClient` works out of the box in pytest.
+- Core dependencies ship with `httpx>=0.27,<1.0` so Starlette's `TestClient` and async HTTP tooling are always available in local runs and CI.
 
 ### Schema locking
 Generate or check the OpenAPI file pinned in this repo.
@@ -106,7 +106,8 @@ Set `KEY_COLUMN=id` to deduplicate on that field.
 
 ### Retry DLQ
 - Failed Google Sheets writes are persisted to the dead-letter queue with reason `write_failed`.
-- A background retry loop wakes every `DLQ_RETRY_INTERVAL` seconds (default 300) when `DLQ_RETRY_ENABLED=1` and replays up to `DLQ_RETRY_BATCH` entries using the configured write credentials.
+- A background retry loop wakes every `DLQ_RETRY_INTERVAL` seconds (default 300) when `DLQ_RETRY_ENABLED=1`, fetches work in a thread (so SQLite access stays off the event loop), and replays up to `DLQ_RETRY_BATCH` entries using the configured write credentials.
+- Each queued row now runs via a bounded worker pool controlled by `DLQ_RETRY_CONCURRENCY` (default `4`), keeping API handlers responsive even when Google Sheets writes block.
 - Trigger manual retries on demand via authenticated `POST /admin/dlq/retry`; successful writes are removed from the queue and the response reports how many entries were retried.
 
 ### Authentication
