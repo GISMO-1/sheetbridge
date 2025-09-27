@@ -64,7 +64,7 @@ Open http://127.0.0.1:8000/docs
     }
   }
   ```
-- `/append` now validates incoming rows against the declared contract. Coercion handles strings, numbers, integers, booleans (`1/true/yes/y`), ISO datetime, and ISO date types. Missing required fields or type mismatches return HTTP 422 with details and land in the dead-letter queue (`GET /admin/dlq`).
+- `/append` now validates incoming rows against the declared contract. Coercion handles strings, numbers, integers, booleans (`1/true/yes/y`), ISO datetime, and ISO date types. Datetime-like values are normalized back to ISO 8601 strings before caching so the JSON payload stays serializable. Missing required fields or type mismatches return HTTP 422 with details and land in the dead-letter queue (`GET /admin/dlq`).
 - Optional primary key enforcement: set `KEY_COLUMN` to the column name to require a non-empty value on `/append`.
 
 ## Idempotency

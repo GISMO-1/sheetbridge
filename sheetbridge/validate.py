@@ -21,9 +21,11 @@ def _coerce(val: Any, typ: str):
         s = str(val).strip().lower()
         return s in {"1", "true", "yes", "y"}
     if typ == "datetime":
-        return datetime.fromisoformat(str(val))
+        coerced = datetime.fromisoformat(str(val))
+        return coerced.isoformat()
     if typ == "date":
-        return datetime.fromisoformat(str(val)).date()
+        coerced = datetime.fromisoformat(str(val)).date()
+        return coerced.isoformat()
     return val
 
 
