@@ -18,6 +18,8 @@ Open http://127.0.0.1:8000/docs
 ## Development notes
 - Local database cache lives at `sheetbridge.db`; configure via environment (see `sheetbridge/config.py`).
 - Environment variables can be loaded from `.env`.
+- FastAPI lifespan now reloads configuration via `sheetbridge.config.reload_settings()` so env overrides set before startup (e.g. in tests) are respected on every app instance.
+- Startup also rebuilds the SQLite engine through `sheetbridge.store.refresh_engine()` so per-test database paths and cache resets take effect immediately after env changes, and store helpers lazily reinitialize the schema for whichever SQLite file `settings.CACHE_DB_PATH` points to.
 - To install dev tooling without editable mode: `pip install -e ".[dev]"` after activating a Python 3.11 virtualenv. The dev extra pins `httpx>=0.27,<1.0` so Starlette's `TestClient` works under pytest without manual installs.
 - Linting is configured with Ruff (see `pyproject.toml`).
 - `init_db()` automatically backfills the cached rows table with a `created_at` column if a legacy database is missing it, so `/rows?since=` continues working after upgrades without manual intervention.
@@ -48,6 +50,7 @@ Open http://127.0.0.1:8000/docs
 
 ## Write-back
 - Enable write-back by setting `ALLOW_WRITE_BACK=1` (or `true`) and calling the authenticated `POST /append` endpoint with the bearer token defined by `API_TOKEN`.
+- `POST /append` and `POST /rows` now accept either the bearer token or any configured API key via `X-API-Key` for write access.
 - Requests are cached immediately via SQLite; if Google credentials with write scope are unavailable the API responds with `{"inserted": 1, "wrote": False, "idempotency_key": null}` and will not attempt the remote append.
 - Provide write credentials via either a service account (`GOOGLE_SERVICE_ACCOUNT_JSON` + optional `DELEGATED_SUBJECT`) or user OAuth (`GOOGLE_OAUTH_CLIENT_SECRETS` + token flow). When credentials resolve successfully, `/append` issues a Sheets `values.append` call ordered by the header row and responds with `{"inserted": 1, "wrote": True, "idempotency_key": null}` unless an idempotency key is supplied.
 

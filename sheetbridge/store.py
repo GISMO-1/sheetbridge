@@ -1,12 +1,37 @@
+from pathlib import Path
 from time import time
 from typing import Any, Optional
 
 from sqlalchemy import Column, Integer, JSON, String, Text, cast, func
+from sqlalchemy.engine import Engine
 from sqlmodel import Field, Session, SQLModel, create_engine, delete, select
 
 from .config import settings
 
-engine = create_engine(f"sqlite:///{settings.CACHE_DB_PATH}", echo=False)
+engine: Engine | None = None
+
+
+def _db_path() -> Path:
+    path = Path(settings.CACHE_DB_PATH)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def refresh_engine() -> None:
+    global engine
+    if engine is not None:
+        engine.dispose()
+    db_path = _db_path()
+    engine = create_engine(f"sqlite:///{db_path}", echo=False)
+
+
+def _get_engine() -> Engine:
+    global engine
+    desired = str(_db_path())
+    if engine is None or engine.url.database != desired:
+        refresh_engine()
+    assert engine is not None
+    return engine
 
 class Row(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
@@ -35,9 +60,15 @@ class DeadLetter(SQLModel, table=True):
     )
 
 def init_db():
-    SQLModel.metadata.create_all(engine)
+    _prepare_schema()
 
-    with engine.begin() as connection:
+
+def _prepare_schema() -> Engine:
+    eng = _get_engine()
+
+    SQLModel.metadata.create_all(eng)
+
+    with eng.begin() as connection:
         table_name = Row.__tablename__
         pragma_rows = connection.exec_driver_sql(
             f"PRAGMA table_info('{table_name}')"
@@ -63,10 +94,13 @@ def init_db():
             f'ON "{table_name}" (key)'
         )
 
+    return eng
+
 def insert_rows(rows: list[dict]) -> int:
+    eng = _prepare_schema()
     now = int(time())
     key_column = getattr(settings, "KEY_COLUMN", None)
-    with Session(engine) as session:
+    with Session(eng) as session:
         inserted = 0
         for row in rows:
             key_value: str | None = None
@@ -85,8 +119,9 @@ def upsert_rows(rows: list[dict]) -> int:
 
 
 def upsert_by_key(rows: list[dict], key_column: str, strict: bool = True) -> int:
+    eng = _prepare_schema()
     now = int(time())
-    with Session(engine) as session:
+    with Session(eng) as session:
         touched = 0
         for row in rows:
             key_value = row.get(key_column)
@@ -112,7 +147,8 @@ def upsert_by_key(rows: list[dict], key_column: str, strict: bool = True) -> int
 def find_duplicates(key_column: str):
     if not key_column:
         return []
-    with Session(engine) as session:
+    eng = _prepare_schema()
+    with Session(eng) as session:
         statement = (
             select(Row.key, func.count(Row.key))
             .group_by(Row.key)
@@ -143,7 +179,8 @@ def query_rows(
     limit: int,
     offset: int,
 ) -> tuple[list[dict], int]:
-    with Session(engine) as session:
+    eng = _prepare_schema()
+    with Session(eng) as session:
         stmt = select(Row)
         if since_unix is not None:
             stmt = stmt.where(Row.created_at >= since_unix)
@@ -171,7 +208,8 @@ def query_rows(
 
 
 def save_idempotency(key: str, response: dict[str, Any]) -> None:
-    with Session(engine) as session:
+    eng = _prepare_schema()
+    with Session(eng) as session:
         session.merge(
             Idempotency(key=key, created_at=int(time()), response=response)
         )
@@ -179,8 +217,9 @@ def save_idempotency(key: str, response: dict[str, Any]) -> None:
 
 
 def get_idempotency(key: str, ttl_seconds: int) -> Optional[dict[str, Any]]:
+    eng = _prepare_schema()
     now = int(time())
-    with Session(engine) as session:
+    with Session(eng) as session:
         row = session.get(Idempotency, key)
         if not row:
             return None
@@ -190,8 +229,9 @@ def get_idempotency(key: str, ttl_seconds: int) -> Optional[dict[str, Any]]:
 
 
 def purge_idempotency_older_than(ttl_seconds: int) -> int:
+    eng = _prepare_schema()
     cutoff = int(time()) - ttl_seconds
-    with Session(engine) as session:
+    with Session(eng) as session:
         statement = delete(Idempotency).where(Idempotency.created_at < cutoff)
         result = session.exec(statement)
         session.commit()
@@ -199,13 +239,15 @@ def purge_idempotency_older_than(ttl_seconds: int) -> int:
 
 
 def dlq_write(reason: str, data: dict[str, Any]) -> None:
-    with Session(engine) as session:
+    eng = _prepare_schema()
+    with Session(eng) as session:
         session.add(DeadLetter(reason=reason, data=data))
         session.commit()
 
 
 def dlq_list(limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
-    with Session(engine) as session:
+    eng = _prepare_schema()
+    with Session(eng) as session:
         statement = (
             select(DeadLetter)
             .order_by(DeadLetter.id.desc())

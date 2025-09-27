@@ -22,7 +22,7 @@ from pydantic import BaseModel
 
 from . import schema as schema_mod
 from .auth import require_auth, require_write_token
-from .config import settings
+from .config import settings, reload_settings
 from .logging import AccessLogMiddleware
 from .metrics import MetricsHook, metrics_response
 from .oauth import resolve_credentials
@@ -37,6 +37,7 @@ from .store import (
     init_db,
     insert_rows,
     purge_idempotency_older_than,
+    refresh_engine,
     query_rows,
     save_idempotency,
     upsert_by_key,
@@ -71,6 +72,8 @@ async def _sync_once() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    reload_settings()
+    refresh_engine()
     Path(settings.CACHE_DB_PATH).touch(exist_ok=True)
     init_db()
     schema_mod.load(getattr(settings, "SCHEMA_JSON_PATH", "schema.json"))
@@ -257,7 +260,7 @@ def admin_dupes(_=Depends(require_auth)):
 @app.get("/admin/schema")
 def admin_get_schema(_=Depends(require_auth)):
     contract = schema_mod.get()
-    return contract.model_dump() if contract else {"columns": {}}
+    return schema_mod.to_payload(contract) if contract else {"columns": {}}
 
 
 @app.post("/admin/schema")
