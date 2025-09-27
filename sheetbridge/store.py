@@ -1,7 +1,7 @@
 from time import time
 from typing import Any, Optional
 
-from sqlalchemy import Column, Integer, JSON, Text, cast, func
+from sqlalchemy import Column, Integer, JSON, String, Text, cast, func
 from sqlmodel import Field, Session, SQLModel, create_engine, delete, select
 
 from .config import settings
@@ -20,6 +20,15 @@ class Idempotency(SQLModel, table=True):
     key: str = Field(primary_key=True)
     created_at: int = Field(sa_column=Column(Integer, nullable=False))
     response: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
+
+
+class DeadLetter(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    reason: str = Field(sa_column=Column(String, nullable=False))
+    data: dict[str, Any] = Field(sa_column=Column(JSON))
+    created_at: int = Field(
+        sa_column=Column(Integer, nullable=False, default=int(time()))
+    )
 
 def init_db():
     SQLModel.metadata.create_all(engine)
@@ -124,3 +133,28 @@ def purge_idempotency_older_than(ttl_seconds: int) -> int:
         result = session.exec(statement)
         session.commit()
         return result.rowcount or 0
+
+
+def dlq_write(reason: str, data: dict[str, Any]) -> None:
+    with Session(engine) as session:
+        session.add(DeadLetter(reason=reason, data=data))
+        session.commit()
+
+
+def dlq_list(limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+    with Session(engine) as session:
+        statement = (
+            select(DeadLetter)
+            .order_by(DeadLetter.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        return [
+            {
+                "id": row.id,
+                "reason": row.reason,
+                "data": row.data,
+                "created_at": row.created_at,
+            }
+            for row in session.exec(statement)
+        ]

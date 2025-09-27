@@ -51,6 +51,22 @@ Open http://127.0.0.1:8000/docs
 - Requests are cached immediately via SQLite; if Google credentials with write scope are unavailable the API responds with `{"inserted": 1, "wrote": False, "idempotency_key": null}` and will not attempt the remote append.
 - Provide write credentials via either a service account (`GOOGLE_SERVICE_ACCOUNT_JSON` + optional `DELEGATED_SUBJECT`) or user OAuth (`GOOGLE_OAUTH_CLIENT_SECRETS` + token flow). When credentials resolve successfully, `/append` issues a Sheets `values.append` call ordered by the header row and responds with `{"inserted": 1, "wrote": True, "idempotency_key": null}` unless an idempotency key is supplied.
 
+## Schema contracts and validation
+- Configure `SCHEMA_JSON_PATH` (defaults to `schema.json`) to point at a JSON schema contract on disk. The schema is optional; when the file is absent payloads pass through unchanged.
+- Manage the contract via the authenticated `GET /admin/schema` and `POST /admin/schema` endpoints. The POST handler persists the schema to disk and reloads it at runtime. Example payload:
+  ```json
+  {
+    "columns": {
+      "id": {"type": "string", "required": true},
+      "name": {"type": "string"},
+      "age": {"type": "integer"},
+      "active": {"type": "boolean"}
+    }
+  }
+  ```
+- `/append` now validates incoming rows against the declared contract. Coercion handles strings, numbers, integers, booleans (`1/true/yes/y`), ISO datetime, and ISO date types. Missing required fields or type mismatches return HTTP 422 with details and land in the dead-letter queue (`GET /admin/dlq`).
+- Optional primary key enforcement: set `KEY_COLUMN` to the column name to require a non-empty value on `/append`.
+
 ## Idempotency
 - Use the optional `Idempotency-Key` header on `POST /append` calls to deduplicate retries. The first write stores the JSON response in the cache and subsequent calls with the same key return that payload verbatim with an extra `Idempotency-Replayed: 1` header.
 - Every `/append` reply follows `{"inserted": 1, "wrote": <bool>, "idempotency_key": <string|null>}`; when idempotency is active the cached structure is reused.
