@@ -104,6 +104,11 @@ Set `KEY_COLUMN=id` to deduplicate on that field.
 - Entries expire based on `IDEMPOTENCY_TTL_SECONDS` (default 86,400 seconds). Override the environment variable to change the retention window.
 - Run the authenticated `POST /admin/idempotency/purge` maintenance endpoint to delete expired entries immediately. The endpoint responds with `{"purged": <count>}` indicating how many records were removed. All `/admin/*` routes require either a legacy bearer token or a configured API key.
 
+### Retry DLQ
+- Failed Google Sheets writes are persisted to the dead-letter queue with reason `write_failed`.
+- A background retry loop wakes every `DLQ_RETRY_INTERVAL` seconds (default 300) when `DLQ_RETRY_ENABLED=1` and replays up to `DLQ_RETRY_BATCH` entries using the configured write credentials.
+- Trigger manual retries on demand via authenticated `POST /admin/dlq/retry`; successful writes are removed from the queue and the response reports how many entries were retried.
+
 ### Authentication
 - Bearer tokens (legacy, `Authorization: Bearer <API_TOKEN>`). The default token is `dev_token`; overriding `API_TOKEN` disables the dev token fallback unless you explicitly list `dev_token` in `API_KEYS`.
 - API keys: set `API_KEYS` env var (comma-separated). Use header `X-API-Key: <key>`.

@@ -37,6 +37,9 @@ class Settings(BaseModel):
     UPSERT_STRICT: bool = Field(default=True)
     BULK_MAX_ITEMS: int = Field(default=500)
     SHEETS_BATCH_SIZE: int = Field(default=200)
+    DLQ_RETRY_ENABLED: bool = Field(default=True)
+    DLQ_RETRY_INTERVAL: int = Field(default=300)
+    DLQ_RETRY_BATCH: int = Field(default=50)
 
 
 def _load_settings(existing: Settings | None = None) -> Settings:
