@@ -13,3 +13,4 @@ jobs:
       - run: python -m pip install -U pip
       - run: pip install -e ".[dev]"
       - run: pytest -q
+      - run: python -m sheetbridge.openapi_tool --check --out openapi.json
