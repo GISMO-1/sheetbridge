@@ -65,7 +65,12 @@ Open http://127.0.0.1:8000/docs
   }
   ```
 - `/append` now validates incoming rows against the declared contract. Coercion handles strings, numbers, integers, booleans (`1/true/yes/y`), ISO datetime, and ISO date types. Datetime-like values are normalized back to ISO 8601 strings before caching so the JSON payload stays serializable. Missing required fields or type mismatches return HTTP 422 with details and land in the dead-letter queue (`GET /admin/dlq`).
-- Optional primary key enforcement: set `KEY_COLUMN` to the column name to require a non-empty value on `/append`.
+- Optional primary key enforcement: set `KEY_COLUMN` to the column name to deduplicate cached rows on `/append`; pair with `UPSERT_STRICT` to reject payloads missing the key.
+
+### Key-based upsert
+Set `KEY_COLUMN=id` to deduplicate on that field.  
+- With `UPSERT_STRICT=1`, appends missing the key are rejected.  
+- Admin endpoint: `/admin/dupes` lists keys with >1 entry.
 
 ## Idempotency
 - Use the optional `Idempotency-Key` header on `POST /append` calls to deduplicate retries. The first write stores the JSON response in the cache and subsequent calls with the same key return that payload verbatim with an extra `Idempotency-Replayed: 1` header.
