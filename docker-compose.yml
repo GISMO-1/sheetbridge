@@ -1,0 +1,25 @@
+version: "3.9"
+services:
+  sheetbridge:
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-your-org}/sheetbridge:latest
+    # For local dev use: build: .
+    environment:
+      # Required
+      GOOGLE_SHEET_ID: "${GOOGLE_SHEET_ID}"
+      API_KEYS: "${API_KEYS}"
+      # Optional knobs
+      ALLOW_WRITE_BACK: "${ALLOW_WRITE_BACK:-0}"
+      SYNC_ENABLED: "${SYNC_ENABLED:-0}"
+      CACHE_DB_PATH: "/data/sheetbridge.db"
+      TOKEN_STORE: "/tokens/sheets.json"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+    ports:
+      - "8000:8000"
+    volumes:
+      - type: bind
+        source: ./data
+        target: /data
+      - type: bind
+        source: ./tokens
+        target: /tokens
+    restart: unless-stopped
