@@ -35,6 +35,8 @@ class Settings(BaseModel):
     SCHEMA_JSON_PATH: str = Field(default="schema.json")
     KEY_COLUMN: str | None = Field(default=None)
     UPSERT_STRICT: bool = Field(default=True)
+    BULK_MAX_ITEMS: int = Field(default=500)
+    SHEETS_BATCH_SIZE: int = Field(default=200)
 
 
 def _load_settings(existing: Settings | None = None) -> Settings:

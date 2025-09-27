@@ -54,5 +54,20 @@ def append_row(creds: Credentials, row: Dict):
     ).execute()
 
 
+def append_rows(creds: Credentials, rows: list[Dict]):
+    header = get_header(creds)
+    values = [[row.get(column, None) for column in header] for row in rows]
+    svc = _service(creds)
+    rng = f"{settings.GOOGLE_WORKSHEET}!A:Z"
+    body = {"values": values}
+    svc.spreadsheets().values().append(
+        spreadsheetId=settings.GOOGLE_SHEET_ID,
+        range=rng,
+        valueInputOption="USER_ENTERED",
+        insertDataOption="INSERT_ROWS",
+        body=body,
+    ).execute()
+
+
 def fetch_sheet_with_auto_creds(creds: Credentials) -> list[dict]:
     return fetch_sheet(creds)
