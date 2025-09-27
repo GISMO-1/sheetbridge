@@ -46,7 +46,7 @@ Implementation notes:
 
 Env:
 - Python 3.11 virtualenv (`python -m venv .venv && source .venv/bin/activate`)
-- Install dependencies with `pip install -e ".[dev]"`
+- Install dependencies with `pip install -e ".[dev]"` (dev extra pins `httpx>=0.27,<1.0` so the Starlette TestClient dependency lands during setup)
 - Configure settings via environment variables or `.env`
 - New/updated config knobs: `API_KEYS` (comma-separated admin API keys, default empty), `CORS_ALLOW_ORIGINS` (comma-separated origins, default `*`), `SYNC_ENABLED` (defaults to `0`), `SYNC_INTERVAL_SECONDS` (default `300`), `SYNC_JITTER_SECONDS` (default `15`), `SYNC_BACKOFF_MAX_SECONDS` (default `600`), `IDEMPOTENCY_TTL_SECONDS` (default `86400`), `LOG_LEVEL` (default `INFO`), `RATE_LIMIT_ENABLED` (default `0`), `RATE_LIMIT_RPS` (default `5.0`), `RATE_LIMIT_BURST` (default `20`), `SCHEMA_JSON_PATH` (default `schema.json`, optional), `KEY_COLUMN` (default unset/`None`), and `UPSERT_STRICT` (default `1`/`True`, toggles rejection of missing keys when a key column is active). Legacy knobs like `GOOGLE_OAUTH_CLIENT_SECRETS`, `GOOGLE_SERVICE_ACCOUNT_JSON`, `DELEGATED_SUBJECT`, `TOKEN_STORE`, and `ALLOW_WRITE_BACK` remain.
 
