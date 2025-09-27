@@ -65,6 +65,13 @@ python -m sheetbridge.openapi_tool --check --out openapi.json
 - Requests are cached immediately via SQLite; if Google credentials with write scope are unavailable the API responds with `{"inserted": 1, "wrote": False, "idempotency_key": null}` and will not attempt the remote append.
 - Provide write credentials via either a service account (`GOOGLE_SERVICE_ACCOUNT_JSON` + optional `DELEGATED_SUBJECT`) or user OAuth (`GOOGLE_OAUTH_CLIENT_SECRETS` + token flow). When credentials resolve successfully, `/append` issues a Sheets `values.append` call ordered by the header row and responds with `{"inserted": 1, "wrote": True, "idempotency_key": null}` unless an idempotency key is supplied.
 
+### Bulk append
+- `POST /bulk/append` accepts an authenticated JSON array of rows (API key or bearer token) and reuses the same validation + key-upsert logic as `/append`.
+- Each row is validated; the response includes `accepted` indices that made it through validation/upsert, alongside `rejected` entries with `{index, reason}` for DLQ triage. The endpoint never fails the whole batch if only a subset is invalid.
+- Optional `Idempotency-Key` applies to the entire batch; retries replay the cached payload and add an `Idempotency-Replayed: 1` header.
+- Cache writes happen immediately. When `ALLOW_WRITE_BACK=1` and credentials resolve, rows stream to Google Sheets in chunks controlled by `SHEETS_BATCH_SIZE` (default 200) so large batches respect the API append limits.
+- Guard total payload size with `BULK_MAX_ITEMS` (default 500). Requests above the limit return HTTP 413 without touching the cache.
+
 ## Schema contracts and validation
 - Configure `SCHEMA_JSON_PATH` (defaults to `schema.json`) to point at a JSON schema contract on disk. The schema is optional; when the file is absent payloads pass through unchanged.
 - Manage the contract via the authenticated `GET /admin/schema` and `POST /admin/schema` endpoints. The POST handler persists the schema to disk and reloads it at runtime. Example payload:

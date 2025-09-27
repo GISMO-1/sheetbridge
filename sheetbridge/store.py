@@ -118,6 +118,10 @@ def upsert_rows(rows: list[dict]) -> int:
     return insert_rows(rows)
 
 
+def upsert_rows_bulk(rows: list[dict]):
+    insert_rows(rows)
+
+
 def upsert_by_key(rows: list[dict], key_column: str, strict: bool = True) -> int:
     eng = _prepare_schema()
     now = int(time())
@@ -142,6 +146,10 @@ def upsert_by_key(rows: list[dict], key_column: str, strict: bool = True) -> int
                 touched += 1
         session.commit()
         return touched
+
+
+def upsert_by_key_bulk(rows: list[dict], key_column: str, strict: bool):
+    upsert_by_key(rows, key_column, strict)
 
 
 def find_duplicates(key_column: str):

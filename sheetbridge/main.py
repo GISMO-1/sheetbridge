@@ -4,7 +4,7 @@ import asyncio
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import (
     Body,
@@ -28,7 +28,7 @@ from .metrics import MetricsHook, metrics_response
 from .oauth import resolve_credentials
 from .ratelimit import allow
 from .scheduler import run_periodic, state as sync_state
-from .sheets import fetch_sheet
+from .sheets import fetch_sheet, append_rows
 from .store import (
     dlq_list,
     dlq_write,
@@ -41,7 +41,9 @@ from .store import (
     query_rows,
     save_idempotency,
     upsert_by_key,
+    upsert_by_key_bulk,
     upsert_rows,
+    upsert_rows_bulk,
 )
 from .validate import validate_row
 
@@ -245,6 +247,80 @@ def append(
 
     append_row(creds, row)
     out = {"inserted": stored, "wrote": True, "idempotency_key": idem_key or None}
+    if idem_key:
+        save_idempotency(idem_key, out)
+    return out
+
+
+@app.post("/bulk/append")
+def bulk_append(
+    response: Response,
+    rows: List[dict] = Body(...),
+    _=Depends(require_auth),
+    idem_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    if not isinstance(rows, list):
+        raise HTTPException(status_code=400, detail="body must be a JSON array")
+    if len(rows) > settings.BULK_MAX_ITEMS:
+        raise HTTPException(status_code=413, detail="too many rows")
+
+    ttl = settings.IDEMPOTENCY_TTL_SECONDS
+    if idem_key:
+        hit = get_idempotency(idem_key, ttl)
+        if hit is not None:
+            response.headers["Idempotency-Replayed"] = "1"
+            return hit
+
+    ok_rows: list[int] = []
+    bad_rows: list[dict[str, object]] = []
+    cleaned_rows: list[tuple[int, dict]] = []
+    key_column = getattr(settings, "KEY_COLUMN", None)
+    strict_keys = bool(getattr(settings, "UPSERT_STRICT", True))
+
+    for idx, row in enumerate(rows):
+        ok, cleaned, reason = validate_row(row)
+        if not ok:
+            bad_rows.append({"index": idx, "reason": reason})
+            dlq_write(reason or "invalid", row)
+            continue
+        if key_column and strict_keys and cleaned.get(key_column) is None:
+            reason = f"missing key:{key_column}"
+            bad_rows.append({"index": idx, "reason": reason})
+            dlq_write(reason, row)
+            continue
+        cleaned_rows.append((idx, cleaned))
+        ok_rows.append(idx)
+
+    if cleaned_rows:
+        payload = [clean for _, clean in cleaned_rows]
+        if key_column:
+            upsert_by_key_bulk(payload, key_column, strict_keys)
+        else:
+            upsert_rows_bulk(payload)
+
+    wrote = False
+    if bool(getattr(settings, "ALLOW_WRITE_BACK", False)) and cleaned_rows:
+        creds = resolve_credentials(
+            settings.GOOGLE_OAUTH_CLIENT_SECRETS,
+            settings.GOOGLE_SERVICE_ACCOUNT_JSON,
+            settings.DELEGATED_SUBJECT,
+            settings.TOKEN_STORE,
+            scope="write",
+        )
+        if creds:
+            batch = [clean for _, clean in cleaned_rows]
+            chunk_size = int(getattr(settings, "SHEETS_BATCH_SIZE", 200))
+            for start in range(0, len(batch), chunk_size):
+                append_rows(creds, batch[start : start + chunk_size])
+            wrote = True
+
+    out = {
+        "accepted": ok_rows,
+        "rejected": bad_rows,
+        "wrote": wrote,
+        "count": len(cleaned_rows),
+        "idempotency_key": idem_key,
+    }
     if idem_key:
         save_idempotency(idem_key, out)
     return out
