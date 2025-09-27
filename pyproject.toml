@@ -1,6 +1,6 @@
 [project]
 name = "sheetbridge"
-version = "0.1.0"
+dynamic = ["version"]
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115,<1.0",
@@ -30,6 +30,9 @@ sheetbridge-openapi = "sheetbridge.openapi_tool:main"
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.dynamic]
+version = { attr = "sheetbridge.__version__" }
 
 [tool.ruff]
 line-length = 100
