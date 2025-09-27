@@ -18,7 +18,7 @@ Open http://127.0.0.1:8000/docs
 ## Development notes
 - Local database cache lives at `sheetbridge.db`; configure via environment (see `sheetbridge/config.py`).
 - Environment variables can be loaded from `.env`.
-- To install dev tooling without editable mode: `pip install -e ".[dev]"` after activating a Python 3.11 virtualenv.
+- To install dev tooling without editable mode: `pip install -e ".[dev]"` after activating a Python 3.11 virtualenv. The dev extra pins `httpx>=0.27,<1.0` so Starlette's `TestClient` works under pytest without manual installs.
 - Linting is configured with Ruff (see `pyproject.toml`).
 - `init_db()` automatically backfills the cached rows table with a `created_at` column if a legacy database is missing it, so `/rows?since=` continues working after upgrades without manual intervention.
 
