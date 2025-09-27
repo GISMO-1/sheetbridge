@@ -15,6 +15,18 @@ docker run -p 8000:8000 ghcr.io/<your-org>/sheetbridge:latest
 ```
 This image is published automatically whenever a new semantic version tag (`v0.x.y`) is pushed.
 
+### Production run
+```bash
+# one-time: copy sample
+cp .env.sample .env
+# set GOOGLE_SHEET_ID and API_KEYS in .env
+docker compose up -d
+curl -H "X-API-Key: dev_key" http://localhost:8000/health
+```
+- Data persists under `./data/sheetbridge.db` via the Compose volume mapping.
+- OAuth tokens live at `./tokens/sheets.json` so the container can be recycled safely.
+- Replace the default image tag with a pinned version for production rollouts (e.g., `ghcr.io/<org>/sheetbridge:v0.1.0`).
+
 ### Observability
 - Structured logs with method, path, status, and latency emitted via the FastAPI middleware stack.
 - Prometheus metrics exposed at `/metrics` ready for scraping.
