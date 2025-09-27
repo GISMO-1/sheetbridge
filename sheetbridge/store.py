@@ -271,3 +271,20 @@ def dlq_list(limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
             }
             for row in session.exec(statement)
         ]
+
+
+def dlq_fetch(limit: int = 50):
+    eng = _prepare_schema()
+    with Session(eng) as session:
+        stmt = select(DeadLetter).order_by(DeadLetter.id).limit(limit)
+        return list(session.exec(stmt))
+
+
+def dlq_delete(ids: list[int]):
+    if not ids:
+        return
+    eng = _prepare_schema()
+    with Session(eng) as session:
+        for identifier in ids:
+            session.exec(delete(DeadLetter).where(DeadLetter.id == identifier))
+        session.commit()

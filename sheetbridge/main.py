@@ -28,9 +28,11 @@ from .logging_setup import RequestLogMiddleware, init_logging
 from .metrics import LAT, REQS, router as metrics_router
 from .oauth import resolve_credentials
 from .ratelimit import allow
-from .scheduler import run_periodic, state as sync_state
-from .sheets import fetch_sheet, append_rows
+from .scheduler import retry_dlq, run_periodic, state as sync_state
+from .sheets import append_row, append_rows, fetch_sheet
 from .store import (
+    dlq_delete,
+    dlq_fetch,
     dlq_list,
     dlq_write,
     find_duplicates,
@@ -80,7 +82,7 @@ async def lifespan(app: FastAPI):
     Path(settings.CACHE_DB_PATH).touch(exist_ok=True)
     init_db()
     schema_mod.load(getattr(settings, "SCHEMA_JSON_PATH", "schema.json"))
-    task: Optional[asyncio.Task[None]] = None
+    tasks: list[asyncio.Task[None]] = []
     if bool(getattr(settings, "SYNC_ENABLED", False)):
         async def loop() -> None:
             await run_periodic(
@@ -90,11 +92,34 @@ async def lifespan(app: FastAPI):
                 settings.SYNC_BACKOFF_MAX_SECONDS,
             )
 
-        task = asyncio.create_task(loop())
+        tasks.append(asyncio.create_task(loop()))
+
+    if bool(getattr(settings, "DLQ_RETRY_ENABLED", True)):
+        async def _retry_one(row):
+            creds = resolve_credentials(
+                settings.GOOGLE_OAUTH_CLIENT_SECRETS,
+                settings.GOOGLE_SERVICE_ACCOUNT_JSON,
+                settings.DELEGATED_SUBJECT,
+                settings.TOKEN_STORE,
+                scope="write",
+            )
+            if not creds:
+                raise RuntimeError("no creds")
+            append_row(creds, row.data)
+
+        tasks.append(
+            asyncio.create_task(
+                retry_dlq(
+                    _retry_one,
+                    int(getattr(settings, "DLQ_RETRY_INTERVAL", 300)),
+                    int(getattr(settings, "DLQ_RETRY_BATCH", 50)),
+                )
+            )
+        )
     try:
         yield
     finally:
-        if task:
+        for task in tasks:
             task.cancel()
             with suppress(asyncio.CancelledError, Exception):
                 await task
@@ -247,9 +272,16 @@ def append(
         if idem_key:
             save_idempotency(idem_key, out)
         return out
-    from .sheets import append_row
 
-    append_row(creds, row)
+    try:
+        append_row(creds, row)
+    except Exception:  # noqa: BLE001
+        dlq_write("write_failed", row)
+        out = {"inserted": stored, "wrote": False, "idempotency_key": idem_key or None}
+        if idem_key:
+            save_idempotency(idem_key, out)
+        return out
+
     out = {"inserted": stored, "wrote": True, "idempotency_key": idem_key or None}
     if idem_key:
         save_idempotency(idem_key, out)
@@ -326,9 +358,17 @@ def bulk_append(
         if creds:
             batch = [clean for _, clean in cleaned_rows]
             chunk_size = int(getattr(settings, "SHEETS_BATCH_SIZE", 200))
+            success = False
             for start in range(0, len(batch), chunk_size):
-                append_rows(creds, batch[start : start + chunk_size])
-            wrote = True
+                chunk = batch[start : start + chunk_size]
+                try:
+                    append_rows(creds, chunk)
+                except Exception:  # noqa: BLE001
+                    for failed in chunk:
+                        dlq_write("write_failed", failed)
+                    continue
+                success = True
+            wrote = success
 
     out = {
         "accepted": ok_rows,
@@ -366,6 +406,31 @@ def admin_set_schema(payload: dict, _=Depends(require_auth)):
 @app.get("/admin/dlq")
 def admin_list_dlq(limit: int = 100, offset: int = 0, _=Depends(require_auth)):
     return {"items": dlq_list(limit, offset)}
+
+
+@app.post("/admin/dlq/retry")
+def admin_retry_dlq(_=Depends(require_auth)):
+    rows = dlq_fetch(50)
+    retried: list[int] = []
+    creds = resolve_credentials(
+        settings.GOOGLE_OAUTH_CLIENT_SECRETS,
+        settings.GOOGLE_SERVICE_ACCOUNT_JSON,
+        settings.DELEGATED_SUBJECT,
+        settings.TOKEN_STORE,
+        scope="write",
+    )
+    if not creds:
+        raise HTTPException(status_code=503, detail="no creds")
+    for row in rows:
+        try:
+            append_row(creds, row.data)
+        except Exception:  # noqa: BLE001
+            continue
+        if row.id is not None:
+            retried.append(row.id)
+    if retried:
+        dlq_delete(retried)
+    return {"retried": len(retried)}
 
 
 @app.post("/admin/idempotency/purge")
