@@ -89,8 +89,9 @@ python -m sheetbridge.openapi_tool --check --out openapi.json
 - Optional primary key enforcement: set `KEY_COLUMN` to the column name to deduplicate cached rows on `/append`; pair with `UPSERT_STRICT` to reject payloads missing the key.
 
 ### Key-based upsert
-Set `KEY_COLUMN=id` to deduplicate on that field.  
-- With `UPSERT_STRICT=1`, appends missing the key are rejected.  
+Set `KEY_COLUMN=id` to deduplicate on that field.
+- With `UPSERT_STRICT=1`, appends missing the key are rejected.
+- With `UPSERT_STRICT=0`, rows missing the key still succeed but fall back to non-deduplicating inserts.
 - Admin endpoint: `/admin/dupes` lists keys with >1 entry.
 
 ## Idempotency
