@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from typing import Dict, Literal, Optional
 
+import json
+
 from pydantic import BaseModel, Field
 
 JsonType = Literal["string", "number", "integer", "boolean", "datetime", "date"]
@@ -37,8 +39,16 @@ def get() -> Contract | None:
     return _contract
 
 
+def to_payload(contract: Contract) -> dict:
+    data = contract.model_dump()
+    for column in data["columns"].values():
+        if not column.get("required", False):
+            column.pop("required", None)
+    return data
+
+
 def save(contract: Contract, path: Optional[str] = None) -> str:
     p = path or _path or "schema.json"
     with open(p, "w", encoding="utf-8") as handle:
-        handle.write(contract.model_dump_json(indent=2))
+        handle.write(json.dumps(to_payload(contract), indent=2))
     return p

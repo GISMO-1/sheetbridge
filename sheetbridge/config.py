@@ -37,11 +37,14 @@ class Settings(BaseModel):
     UPSERT_STRICT: bool = Field(default=True)
 
 
-def _load_settings() -> Settings:
+def _load_settings(existing: Settings | None = None) -> Settings:
     values: dict[str, Any] = {}
     for name, field in Settings.model_fields.items():
         env_value = os.getenv(name)
         if env_value is None:
+            if existing is not None and hasattr(existing, name):
+                values[name] = getattr(existing, name)
+                continue
             if field.is_required():
                 continue
             values[name] = field.get_default(call_default_factory=True)
@@ -65,3 +68,10 @@ def _load_settings() -> Settings:
 
 
 settings = _load_settings()
+
+
+def reload_settings() -> Settings:
+    global settings
+    fresh = _load_settings(settings)
+    settings.__dict__.update(fresh.__dict__)
+    return settings
