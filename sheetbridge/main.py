@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from . import schema as schema_mod
 from .auth import require_auth, require_write_token
 from .config import settings
 from .logging import AccessLogMiddleware
@@ -29,6 +30,8 @@ from .ratelimit import allow
 from .scheduler import run_periodic, state as sync_state
 from .sheets import fetch_sheet
 from .store import (
+    dlq_list,
+    dlq_write,
     get_idempotency,
     init_db,
     insert_rows,
@@ -36,6 +39,7 @@ from .store import (
     query_rows,
     save_idempotency,
 )
+from .validate import validate_row
 
 
 class Health(BaseModel):
@@ -66,6 +70,7 @@ async def _sync_once() -> None:
 async def lifespan(app: FastAPI):
     Path(settings.CACHE_DB_PATH).touch(exist_ok=True)
     init_db()
+    schema_mod.load(getattr(settings, "SCHEMA_JSON_PATH", "schema.json"))
     task: Optional[asyncio.Task[None]] = None
     if bool(getattr(settings, "SYNC_ENABLED", False)):
         async def loop() -> None:
@@ -191,6 +196,28 @@ def append(
         "yes",
         "on",
     }
+
+    ok, cleaned, reason = validate_row(row)
+    if not ok:
+        dlq_write(reason or "invalid", row)
+        response.status_code = 422
+        return {"detail": "invalid", "reason": reason}
+
+    key_column = getattr(settings, "KEY_COLUMN", None)
+    if key_column:
+        key_value = cleaned.get(key_column)
+        missing_key = False
+        if key_value is None:
+            missing_key = True
+        elif isinstance(key_value, str) and not key_value.strip():
+            missing_key = True
+        if missing_key:
+            dlq_write("missing_key", row)
+            response.status_code = 422
+            return {"detail": "invalid", "reason": "missing_key"}
+
+    row = cleaned
+
     if not allow_write:
         out = {"inserted": 0, "wrote": False, "idempotency_key": idem_key or None}
         if idem_key:
@@ -217,6 +244,25 @@ def append(
     if idem_key:
         save_idempotency(idem_key, out)
     return out
+
+
+@app.get("/admin/schema")
+def admin_get_schema(_=Depends(require_auth)):
+    contract = schema_mod.get()
+    return contract.model_dump() if contract else {"columns": {}}
+
+
+@app.post("/admin/schema")
+def admin_set_schema(payload: dict, _=Depends(require_auth)):
+    contract = schema_mod.Contract.model_validate(payload)
+    path = schema_mod.save(contract, getattr(settings, "SCHEMA_JSON_PATH", "schema.json"))
+    schema_mod.load(path)
+    return {"saved": path}
+
+
+@app.get("/admin/dlq")
+def admin_list_dlq(limit: int = 100, offset: int = 0, _=Depends(require_auth)):
+    return {"items": dlq_list(limit, offset)}
 
 
 @app.post("/admin/idempotency/purge")
