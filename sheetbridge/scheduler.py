@@ -5,6 +5,7 @@ import random
 import time
 from typing import Awaitable, Callable, Optional
 
+from .blocking import to_thread
 from .store import dlq_delete, dlq_fetch
 
 
@@ -52,20 +53,30 @@ async def run_periodic(
             state.running = False
 
 
-async def retry_dlq(task: Callable[[object], Awaitable[None]], interval: int, batch: int):
+async def retry_dlq(
+    run_one_sync: Callable[[object], None],
+    interval: int,
+    batch: int,
+    concurrency: int,
+):
+    sem = asyncio.Semaphore(concurrency)
     while True:
         await asyncio.sleep(interval)
-        rows = dlq_fetch(batch)
+        rows = await to_thread(dlq_fetch, batch)
         if not rows:
             continue
         ok_ids: list[int] = []
-        for row in rows:
-            try:
-                await task(row)
-            except Exception:  # noqa: BLE001
-                continue
-            else:
-                if getattr(row, "id", None) is not None:
-                    ok_ids.append(row.id)
+
+        async def _handle(row):
+            async with sem:
+                try:
+                    await to_thread(run_one_sync, row)
+                except Exception:  # noqa: BLE001
+                    pass
+                else:
+                    if getattr(row, "id", None) is not None:
+                        ok_ids.append(row.id)
+
+        await asyncio.gather(*[_handle(r) for r in rows])
         if ok_ids:
-            dlq_delete(ok_ids)
+            await to_thread(dlq_delete, ok_ids)
